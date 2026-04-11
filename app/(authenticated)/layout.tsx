@@ -16,6 +16,10 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
+  // Force dynamic rendering to prevent caching auth state
+  const dynamic = 'force-dynamic'
+  void dynamic
+
   // Get pending ticket count for nav badge
   const supabase = await createClient()
   const { count: pendingTicketCount } = await supabase

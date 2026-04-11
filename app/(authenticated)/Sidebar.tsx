@@ -8,7 +8,7 @@ import PolyAILogo from '@/app/components/PolyAILogo'
 interface SidebarProps {
   user: { name: string; email: string; role: string }
   pendingTicketCount: number
-  signOutAction: () => Promise<void>
+  signOutAction: () => Promise<{ success?: boolean; redirect?: string } | void>
 }
 
 const navItems = [
@@ -113,7 +113,12 @@ export function Sidebar({ user, pendingTicketCount, signOutAction }: SidebarProp
             {user.role}
           </span>
         </div>
-        <form action={signOutAction}>
+        <form action={async () => {
+          const result = await signOutAction()
+          if (result?.redirect) {
+            window.location.href = result.redirect
+          }
+        }}>
           <button
             type="submit"
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-400 transition-colors hover:bg-white/5 hover:text-white"

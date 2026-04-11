@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createDeployment } from '@/app/actions/deployments'
 import type { User } from '@/lib/types/database.types'
@@ -13,6 +14,7 @@ interface Props {
 export default function DeploymentForm({ agentDesigners, fdes }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -20,14 +22,15 @@ export default function DeploymentForm({ agentDesigners, fdes }: Props) {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    
+
     try {
       const result = await createDeployment(formData)
       if (result?.error) {
         setError(result.error)
         setLoading(false)
+      } else if (result?.id) {
+        router.push(`/deployments/${result.id}`)
       }
-      // Success will redirect automatically
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred')
       setLoading(false)

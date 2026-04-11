@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { signIn } from '@/app/actions/auth'
 import PolyAILogo from '@/app/components/PolyAILogo'
@@ -8,6 +9,7 @@ import PolyAILogo from '@/app/components/PolyAILogo'
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -15,12 +17,14 @@ export default function LoginPage() {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    
+
     try {
       const result = await signIn(formData)
       if (result?.error) {
         setError(result.error)
         setLoading(false)
+      } else if (result?.redirect) {
+        router.push(result.redirect)
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred'

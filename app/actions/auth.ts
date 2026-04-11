@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { UserRole } from '@/lib/types/database.types'
 
@@ -38,13 +37,11 @@ export async function signUp(formData: FormData) {
     })
 
   if (profileError) {
-    // If profile creation fails, we should clean up the auth user
-    // For now, just return the error
     return { error: `Failed to create profile: ${profileError.message}` }
   }
 
   revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  return { success: true, redirect: '/dashboard' }
 }
 
 export async function signIn(formData: FormData) {
@@ -63,21 +60,21 @@ export async function signIn(formData: FormData) {
   }
 
   revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  return { success: true, redirect: '/dashboard' }
 }
 
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   revalidatePath('/', 'layout')
-  redirect('/login')
+  return { success: true, redirect: '/login' }
 }
 
 export async function getCurrentUser() {
   const supabase = await createClient()
-  
+
   const { data: { user } } = await supabase.auth.getUser()
-  
+
   if (!user) return null
 
   // Get user profile from our users table

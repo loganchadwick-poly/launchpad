@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { signUp } from '@/app/actions/auth'
 import PolyAILogo from '@/app/components/PolyAILogo'
@@ -8,6 +9,7 @@ import PolyAILogo from '@/app/components/PolyAILogo'
 export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -15,10 +17,10 @@ export default function SignUpPage() {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    
+
     const password = formData.get('password') as string
     const confirmPassword = formData.get('confirmPassword') as string
-    
+
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       setLoading(false)
@@ -30,6 +32,8 @@ export default function SignUpPage() {
       if (result?.error) {
         setError(result.error)
         setLoading(false)
+      } else if (result?.redirect) {
+        router.push(result.redirect)
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred'

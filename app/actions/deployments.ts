@@ -7,8 +7,22 @@ import { requireAuth } from '@/lib/auth/getUser'
 import type { CreateDeploymentInput } from '@/lib/types/database.types'
 
 export async function createDeployment(formData: FormData) {
-  const user = await requireAuth()
   const supabase = await createClient()
+
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser) {
+    return { error: 'Not authenticated. Please sign in again.' }
+  }
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', authUser.id)
+    .single()
+
+  if (!user) {
+    return { error: 'User profile not found.' }
+  }
 
   const agentDesignerId = formData.get('agent_designer_id') as string
   const fdeId = formData.get('forward_deployed_engineer_id') as string
@@ -33,7 +47,8 @@ export async function createDeployment(formData: FormData) {
   }
 
   revalidatePath('/deployments')
-  redirect(`/deployments/${data.id}`)
+  revalidatePath('/dashboard')
+  return { success: true, id: data.id }
 }
 
 export async function getDeployments() {
