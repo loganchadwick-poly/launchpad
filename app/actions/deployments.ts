@@ -3,25 +3,36 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/getUser'
+import { requireAuth, isAuthBypassed } from '@/lib/auth/getUser'
 import type { CreateDeploymentInput } from '@/lib/types/database.types'
 
 export async function createDeployment(formData: FormData) {
   const supabase = await createClient()
 
-  const { data: { user: authUser } } = await supabase.auth.getUser()
-  if (!authUser) {
-    return { error: 'Not authenticated. Please sign in again.' }
-  }
+  let user;
+  if (isAuthBypassed()) {
+    // In bypass mode, use the first user in the DB (or the mock ID)
+    const { data } = await supabase.from('users').select('*').limit(1).single()
+    user = data
+    if (!user) {
+      return { error: 'No users found in database. Create a user first.' }
+    }
+  } else {
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) {
+      return { error: 'Not authenticated. Please sign in again.' }
+    }
 
-  const { data: user } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', authUser.id)
-    .single()
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single()
 
-  if (!user) {
-    return { error: 'User profile not found.' }
+    user = data
+    if (!user) {
+      return { error: 'User profile not found.' }
+    }
   }
 
   const agentDesignerId = formData.get('agent_designer_id') as string

@@ -11,6 +11,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
+  // Skip login page entirely when auth is bypassed
+  if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
+    router.push('/dashboard')
+    return null
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
