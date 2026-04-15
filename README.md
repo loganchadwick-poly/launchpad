@@ -51,7 +51,7 @@ See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for complete deployment instruc
 
 ## ✨ Key Features
 
-### For PSMs (Product Solutions Managers)
+### For DSs (Deployment Strategists)
 
 ✅ **Deployment Management**
 - Create deployments with client info
@@ -153,7 +153,7 @@ All tables have Row Level Security (RLS) policies for secure access.
 ## 🔐 Authentication & Security
 
 - Email/password authentication via Supabase
-- Role-based access control (PSM, AD, FDE, Client)
+- Role-based access control (DS, AD, FDE, Client)
 - Row Level Security on all database tables
 - Shareable links for client access (cryptographically secure)
 - Environment variables for sensitive credentials
@@ -179,27 +179,27 @@ The entire platform is mobile-responsive and works beautifully on:
 
 ### UAT Testing Workflow
 
-1. PSM creates deployment
-2. PSM creates UAT sheet
-3. PSM adds test cases
-4. PSM shares link with client
+1. DS creates deployment
+2. DS creates UAT sheet
+3. DS adds test cases
+4. DS shares link with client
 5. Client fills out test results
 6. Failed tests → JIRA tickets auto-generated
 7. AD/FDE fixes issues
-8. PSM marks "Ready to Retest"
+8. DS marks "Ready to Retest"
 9. Client retests
 10. Retest pass → Issue resolved ✅
 11. Retest fail → New JIRA ticket created 🔄
 
 ### Issue Tracking Workflow
 
-1. PSM creates issue tracker
-2. PSM shares link with client
+1. DS creates issue tracker
+2. DS shares link with client
 3. Client reports issues
 4. Issue → JIRA ticket auto-generated
-5. PSM assigns priority and status
+5. DS assigns priority and status
 6. Team resolves issue
-7. PSM marks as "Resolved"
+7. DS marks as "Resolved"
 8. Client sees resolution status
 
 ## 📖 Documentation

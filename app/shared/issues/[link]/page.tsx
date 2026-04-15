@@ -15,7 +15,7 @@ export default async function SharedIssuesPage({ params }: { params: Promise<{ l
       deployment:deployment_id(
         id,
         client_name,
-        deployment_id
+        jira_component
       )
     `)
     .eq('shareable_link_token', link)

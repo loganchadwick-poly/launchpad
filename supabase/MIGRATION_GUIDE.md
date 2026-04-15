@@ -111,7 +111,7 @@ Once all migrations are successful, your database is fully set up! You're ready 
 
 ### Tables Created:
 
-1. **users** - Team members (PSM, AD, FDE, Client)
+1. **users** - Team members (DS, AD, FDE, Client)
 2. **deployments** - Client deployments with team assignments
 3. **uat_sheets** - UAT testing sheets with shareable tokens
 4. **uat_test_cases** - Individual test cases with results

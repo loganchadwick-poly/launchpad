@@ -175,10 +175,10 @@ export default function SignUpPage() {
                   id="role"
                   name="role"
                   required
-                  defaultValue="PSM"
+                  defaultValue="DS"
                   className="input-field cursor-pointer"
                 >
-                  <option value="PSM">PSM (Product Solutions Manager)</option>
+                  <option value="DS">DS (Deployment Strategist)</option>
                   <option value="AD">AD (Agent Designer)</option>
                   <option value="FDE">FDE (Forward Deployed Engineer)</option>
                   <option value="Client">Client</option>

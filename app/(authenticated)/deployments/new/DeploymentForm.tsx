@@ -62,40 +62,20 @@ export default function DeploymentForm({ agentDesigners, fdes }: Props) {
           <p className="mt-1 text-xs text-gray-500">The name of the client for this deployment</p>
         </div>
 
-        {/* Deployment ID */}
+        {/* JIRA Component */}
         <div>
-          <label htmlFor="deployment_id" className="block text-sm font-medium text-brand-dark mb-1.5">
-            Deployment ID <span className="text-red-500">*</span>
+          <label htmlFor="jira_component" className="block text-sm font-medium text-brand-dark mb-1.5">
+            JIRA Component <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
-            id="deployment_id"
-            name="deployment_id"
+            id="jira_component"
+            name="jira_component"
             required
             className="input-field"
-            placeholder="e.g., ACME-2024-Q1"
+            placeholder="e.g., Acme Voice Agent"
           />
-          <p className="mt-1 text-xs text-gray-500">A unique identifier for this deployment</p>
-        </div>
-
-        {/* JIRA Space */}
-        <div>
-          <label htmlFor="jira_space" className="block text-sm font-medium text-brand-dark mb-1.5">
-            JIRA Space <span className="text-red-500">*</span>
-          </label>
-          <select
-            id="jira_space"
-            name="jira_space"
-            required
-            className="input-field"
-            defaultValue=""
-          >
-            <option value="" disabled>Select a JIRA space...</option>
-            <option value="HP">HP</option>
-            <option value="HSP">HSP</option>
-            <option value="RL">RL</option>
-          </select>
-          <p className="mt-1 text-xs text-gray-500">The JIRA space where tickets will be created</p>
+          <p className="mt-1 text-xs text-gray-500">The JIRA component name for this deployment</p>
         </div>
 
         {/* Agent Designer */}

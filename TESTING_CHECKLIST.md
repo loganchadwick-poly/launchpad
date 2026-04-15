@@ -6,7 +6,7 @@ Use this checklist to thoroughly test your platform before going live.
 
 ### Sign Up
 - [ ] Can create account with email/password
-- [ ] Can select role (PSM/AD/FDE/Client)
+- [ ] Can select role (DS/AD/FDE/Client)
 - [ ] Receives appropriate error for invalid email
 - [ ] Receives appropriate error for weak password
 - [ ] User appears in Supabase Auth dashboard
@@ -58,8 +58,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] "New Deployment" page loads
 - [ ] Form has all required fields
 - [ ] Client name is required
-- [ ] Deployment ID is required
-- [ ] JIRA space is required
+- [ ] JIRA Component is required
 - [ ] Can select AD from dropdown (populated from team)
 - [ ] Can select FDE from dropdown (populated from team)
 - [ ] Deployment created successfully
@@ -90,7 +89,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] Shareable link generated automatically
 - [ ] Sheet appears in deployment details
 
-### UAT Sheet Detail Page (PSM View)
+### UAT Sheet Detail Page (DS View)
 - [ ] Sheet loads with correct info
 - [ ] "Share with Client" button visible
 - [ ] Copy link works with visual feedback
@@ -105,7 +104,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] Test case appears in table immediately
 - [ ] Row numbers auto-increment
 
-### Edit Test Case (PSM)
+### Edit Test Case (DS)
 - [ ] Click test name to expand
 - [ ] All fields editable
 - [ ] Changes save on blur
@@ -136,7 +135,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] "Saving..." indicator appears
 
 ### Retest a Case
-- [ ] PSM marks test as "Ready to Retest"
+- [ ] DS marks test as "Ready to Retest"
 - [ ] Refresh client view
 - [ ] "Ready to Retest" badge appears
 - [ ] Click test shows "Ready for retesting" banner
@@ -156,7 +155,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] Shareable link generated
 - [ ] Tracker appears in deployment details
 
-### Issue Tracker Detail Page (PSM View)
+### Issue Tracker Detail Page (DS View)
 - [ ] Tracker loads with correct info
 - [ ] "Share with Client" button visible
 - [ ] Copy link works
@@ -164,7 +163,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] Stats show (Total/High Priority/In Progress/Resolved)
 - [ ] Issues display in table
 
-### Add Issue (PSM)
+### Add Issue (DS)
 - [ ] Modal opens
 - [ ] Can enter issue name (required)
 - [ ] Can enter description
@@ -175,7 +174,7 @@ Use this checklist to thoroughly test your platform before going live.
 - [ ] Issue created successfully
 - [ ] Appears in table immediately
 
-### Edit Issue (PSM)
+### Edit Issue (DS)
 - [ ] Click issue name to expand
 - [ ] All fields editable inline
 - [ ] Priority dropdown works
@@ -228,7 +227,7 @@ Use this checklist to thoroughly test your platform before going live.
 
 ### Ticket Cards
 - [ ] Tickets color-coded by type (lime/coral/cyan)
-- [ ] Shows client name and JIRA space
+- [ ] Shows client name and JIRA Component
 - [ ] Shows creation timestamp
 - [ ] Click to expand works
 

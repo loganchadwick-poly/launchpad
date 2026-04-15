@@ -102,11 +102,11 @@ Once deployed, update Supabase Authentication settings with your Vercel URL:
 
 ### 3.3 Create Your First User
 
-**Important**: The first user should be a PSM!
+**Important**: The first user should be a DS!
 
 1. Go to your deployed site
 2. Sign up with your work email
-3. Select role: **PSM**
+3. Select role: **DS**
 4. Complete signup
 
 ## Step 4: Configure Custom Domain (Optional)

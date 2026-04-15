@@ -40,8 +40,7 @@ export async function createDeployment(formData: FormData) {
 
   const deployment: CreateDeploymentInput & { created_by: string } = {
     client_name: formData.get('client_name') as string,
-    deployment_id: formData.get('deployment_id') as string,
-    jira_space: formData.get('jira_space') as 'HP' | 'HSP' | 'RL',
+    jira_component: formData.get('jira_component') as string,
     agent_designer_id: agentDesignerId || null,
     forward_deployed_engineer_id: fdeId || null,
     created_by: user.id,
@@ -115,8 +114,7 @@ export async function updateDeployment(formData: FormData) {
 
   const updates = {
     client_name: formData.get('client_name') as string,
-    deployment_id: formData.get('deployment_id') as string,
-    jira_space: formData.get('jira_space') as 'HP' | 'HSP' | 'RL',
+    jira_component: formData.get('jira_component') as string,
     agent_designer_id: agentDesignerId || null,
     forward_deployed_engineer_id: fdeId || null,
   }

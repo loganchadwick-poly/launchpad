@@ -101,7 +101,7 @@ export default function AddTeamMemberButton() {
                   defaultValue="AD"
                   className="input-field"
                 >
-                  <option value="PSM">PSM (Product Solutions Manager)</option>
+                  <option value="DS">DS (Deployment Strategist)</option>
                   <option value="AD">AD (Agent Designer)</option>
                   <option value="FDE">FDE (Forward Deployed Engineer)</option>
                   <option value="Client">Client</option>

@@ -58,13 +58,10 @@ export default async function DeploymentDetailPage({ params }: { params: Promise
           <div>
             <h1 className="text-3xl font-semibold text-brand-dark">{deployment.client_name}</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Deployment ID: {deployment.deployment_id}
+              JIRA Component: {deployment.jira_component}
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700">
-              {deployment.jira_space}
-            </span>
             <EditDeploymentButton 
               deployment={deployment}
               agentDesigners={agentDesigners}

@@ -15,8 +15,7 @@ export default async function JIRATicketsPage() {
       deployment:deployment_id(
         id,
         client_name,
-        deployment_id,
-        jira_space
+        jira_component
       )
     `)
     .order('created_at', { ascending: false })

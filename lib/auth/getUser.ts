@@ -8,7 +8,7 @@ const MOCK_USER: User = {
   id: '00000000-0000-0000-0000-000000000000',
   email: 'dev@launchpad.local',
   name: 'Dev User',
-  role: 'PSM',
+  role: 'DS',
   jira_username: null,
   created_at: new Date().toISOString(),
 }

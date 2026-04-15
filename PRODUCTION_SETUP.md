@@ -193,7 +193,7 @@ Redirect URLs:
 ### 4.2 Test Production App
 
 1. Visit your Vercel URL
-2. Sign up with your email (PSM role)
+2. Sign up with your email (DS role)
 3. Verify email works (check spam folder)
 4. Log in successfully
 5. Create a test deployment
@@ -252,7 +252,7 @@ Vercel automatically provides SSL certificate. Verify:
 
 ### 6.1 Create Admin Account
 
-Your first account should be PSM role for full access.
+Your first account should be DS role for full access.
 
 ### 6.2 Invite Team Members
 
@@ -260,7 +260,7 @@ Your first account should be PSM role for full access.
 2. Add team members:
    - Agent Designers (AD)
    - FDEs
-   - Other PSMs
+   - Other DSs
 
 ### 6.3 Send Credentials
 

@@ -26,8 +26,7 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
       deployment:deployment_id(
         id,
         client_name,
-        deployment_id,
-        jira_space
+        jira_component
       )
     `)
     .eq('id', id)
@@ -116,7 +115,7 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
           <div>
             <h1 className="text-3xl font-semibold text-brand-dark">{uatSheet.name}</h1>
             <p className="mt-1 text-sm text-gray-600">
-              {uatSheet.deployment.client_name} • {uatSheet.deployment.deployment_id}
+              {uatSheet.deployment.client_name} • {uatSheet.deployment.jira_component}
             </p>
           </div>
           <div className="flex items-center gap-3">

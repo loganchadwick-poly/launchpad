@@ -80,7 +80,7 @@ export default function TicketCard({ ticket }: Props) {
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                 </svg>
-                {ticket.deployment?.jira_space || ticket.space}
+                {ticket.deployment?.jira_component || ticket.space}
               </span>
               <span className="text-xs text-gray-500">
                 {new Date(ticket.created_at).toLocaleString()}
@@ -169,7 +169,7 @@ export default function TicketCard({ ticket }: Props) {
           {!ticket.exported && (
             <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
               <p className="text-xs text-blue-900">
-                <strong>Instructions:</strong> Copy the ticket text above, create a new JIRA ticket in the <strong>{ticket.deployment?.jira_space || ticket.space}</strong> space, 
+                <strong>Instructions:</strong> Copy the ticket text above, create a new JIRA ticket in the <strong>{ticket.deployment?.jira_component || ticket.space}</strong> project,
                 paste the text, and click &quot;Mark as Exported&quot; when done.
               </p>
             </div>

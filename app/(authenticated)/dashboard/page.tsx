@@ -161,8 +161,8 @@ export default async function DashboardPage() {
                   >
                     {deployment.client_name}
                   </Link>
-                  <span className="rounded bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
-                    {deployment.jira_space}
+                  <span className="text-xs text-gray-500 font-mono">
+                    {deployment.jira_component}
                   </span>
                 </div>
                 <div className="flex items-center gap-4">
@@ -182,8 +182,7 @@ export default async function DashboardPage() {
                     deployment={{
                       id: deployment.id,
                       client_name: deployment.client_name,
-                      deployment_id: deployment.deployment_id,
-                      jira_space: deployment.jira_space,
+                      jira_component: deployment.jira_component,
                       agent_designer_id: deployment.agent_designer_id,
                       forward_deployed_engineer_id: deployment.forward_deployed_engineer_id,
                     }}

@@ -12,8 +12,7 @@ interface User {
 interface Deployment {
   id: string
   client_name: string
-  deployment_id: string
-  jira_space: string
+  jira_component: string
   agent_designer_id: string | null
   forward_deployed_engineer_id: string | null
 }
@@ -98,34 +97,17 @@ export default function EditDeploymentButton({ deployment, agentDesigners, fdes 
               </div>
 
               <div>
-                <label htmlFor="deployment_id" className="block text-sm font-medium text-brand-dark mb-1.5">
-                  Deployment ID
+                <label htmlFor="jira_component" className="block text-sm font-medium text-brand-dark mb-1.5">
+                  JIRA Component
                 </label>
                 <input
                   type="text"
-                  id="deployment_id"
-                  name="deployment_id"
+                  id="jira_component"
+                  name="jira_component"
                   required
-                  defaultValue={deployment.deployment_id}
+                  defaultValue={deployment.jira_component}
                   className="input-field"
                 />
-              </div>
-
-              <div>
-                <label htmlFor="jira_space" className="block text-sm font-medium text-brand-dark mb-1.5">
-                  JIRA Space
-                </label>
-                <select
-                  id="jira_space"
-                  name="jira_space"
-                  required
-                  defaultValue={deployment.jira_space}
-                  className="input-field"
-                >
-                  <option value="HP">HP (Hypercare Platform)</option>
-                  <option value="HSP">HSP (Hypercare Support)</option>
-                  <option value="RL">RL (Release)</option>
-                </select>
               </div>
 
               <div>

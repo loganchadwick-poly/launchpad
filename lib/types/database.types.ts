@@ -1,8 +1,6 @@
 // Database type definitions based on PRD
 
-export type UserRole = 'PSM' | 'AD' | 'FDE' | 'Client'
-
-export type JiraSpace = 'HP' | 'HSP' | 'RL'
+export type UserRole = 'DS' | 'AD' | 'FDE' | 'Client'
 
 export type UATResult = 
   | 'As Designed - Perfect' 
@@ -34,8 +32,7 @@ export interface User {
 export interface Deployment {
   id: string
   client_name: string
-  deployment_id: string
-  jira_space: JiraSpace
+  jira_component: string
   agent_designer_id: string
   forward_deployed_engineer_id: string
   created_at: string
@@ -144,8 +141,7 @@ export interface PendingJiraTicket {
 // Form types for creating/updating records
 export interface CreateDeploymentInput {
   client_name: string
-  deployment_id: string
-  jira_space: JiraSpace
+  jira_component: string
   agent_designer_id: string | null
   forward_deployed_engineer_id: string | null
 }

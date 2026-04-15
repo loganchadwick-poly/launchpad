@@ -65,7 +65,7 @@ Get from: Supabase Dashboard → Settings → API
 npm run dev
 
 # Test these:
-# ✓ Sign up (choose PSM role)
+# ✓ Sign up (choose DS role)
 # ✓ Create deployment
 # ✓ Create UAT sheet
 # ✓ Add test case
@@ -97,7 +97,7 @@ npm run dev
 
 | Role | Can Do |
 |------|--------|
-| **PSM** | Everything (full access) |
+| **DS** | Everything (full access) |
 | **AD** | View assigned deployments |
 | **FDE** | View assigned deployments |
 | **Client** | Access via shared links only |
@@ -120,16 +120,16 @@ npm run dev
 
 ## 🔄 Typical Workflow
 
-1. PSM creates deployment
-2. PSM creates UAT sheet + test cases
-3. PSM clicks "Share with Client" → copies link
-4. PSM sends link to client
+1. DS creates deployment
+2. DS creates UAT sheet + test cases
+3. DS clicks "Share with Client" → copies link
+4. DS sends link to client
 5. Client opens link (no login needed)
 6. Client fills out test results
 7. Failed tests → JIRA tickets auto-created
-8. PSM exports tickets to JIRA
+8. DS exports tickets to JIRA
 9. AD/FDE fixes issues
-10. PSM marks "Ready to Retest"
+10. DS marks "Ready to Retest"
 11. Client retests
 12. Done! 🎉
 

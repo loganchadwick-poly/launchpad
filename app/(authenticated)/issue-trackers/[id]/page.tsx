@@ -20,8 +20,7 @@ export default async function IssueTrackerPage({ params }: { params: Promise<{ i
       deployment:deployment_id(
         id,
         client_name,
-        deployment_id,
-        jira_space
+        jira_component
       )
     `)
     .eq('id', id)
@@ -61,7 +60,7 @@ export default async function IssueTrackerPage({ params }: { params: Promise<{ i
           <div>
             <h1 className="text-3xl font-semibold text-brand-dark">{issueTracker.name}</h1>
             <p className="mt-1 text-sm text-gray-600">
-              {issueTracker.deployment.client_name} • {issueTracker.deployment.deployment_id}
+              {issueTracker.deployment.client_name} • {issueTracker.deployment.jira_component}
             </p>
           </div>
           <div className="flex items-center gap-3">

@@ -15,7 +15,7 @@ export default async function TeamPage() {
 
   // Group by role
   const usersByRole = {
-    PSM: users?.filter(u => u.role === 'PSM') || [],
+    DS: users?.filter(u => u.role === 'DS') || [],
     AD: users?.filter(u => u.role === 'AD') || [],
     FDE: users?.filter(u => u.role === 'FDE') || [],
     Client: users?.filter(u => u.role === 'Client') || [],
@@ -43,8 +43,8 @@ export default async function TeamPage() {
           <p className="text-sm text-gray-600">Total Members</p>
         </div>
         <div className="card border border-gray-200 bg-white p-4">
-          <p className="text-2xl font-semibold text-brand-dark">{usersByRole.PSM.length}</p>
-          <p className="text-sm text-gray-700 font-medium">PSM</p>
+          <p className="text-2xl font-semibold text-brand-dark">{usersByRole.DS.length}</p>
+          <p className="text-sm text-gray-700 font-medium">DS</p>
         </div>
         <div className="card border border-gray-200 bg-white p-4">
           <p className="text-2xl font-semibold text-brand-dark">{usersByRole.AD.length}</p>
@@ -125,7 +125,7 @@ export default async function TeamPage() {
       <div className="mt-6 card border-2 border-gray-300 bg-gray-50 p-4">
         <h3 className="text-sm font-semibold text-brand-dark">Team Member Roles</h3>
         <ul className="mt-2 grid gap-2 sm:grid-cols-2 text-sm text-gray-700">
-          <li><strong className="text-brand-dark">PSM:</strong> Creates deployments and manages projects</li>
+          <li><strong className="text-brand-dark">DS:</strong> Deployment Strategist - Creates deployments and manages projects</li>
           <li><strong className="text-brand-dark">AD:</strong> Assigned to UAT testing, receives UAT tickets</li>
           <li><strong className="text-brand-dark">FDE:</strong> Assigned to hypercare, receives issue tickets</li>
           <li><strong className="text-brand-dark">Client:</strong> External users who access via shareable links</li>

@@ -19,7 +19,7 @@ export default async function SharedUATPage({ params }: { params: Promise<{ link
       deployment:deployment_id(
         id,
         client_name,
-        deployment_id
+        jira_component
       )
     `)
     .eq('shareable_link_token', link)

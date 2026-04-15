@@ -5,7 +5,7 @@ import { updateTeamMember, deleteTeamMember } from '@/app/actions/team'
 import type { User } from '@/lib/types/database.types'
 
 const roleColors = {
-  PSM: 'bg-gray-100 text-gray-800 border-gray-300',
+  DS: 'bg-gray-100 text-gray-800 border-gray-300',
   AD: 'bg-gray-100 text-gray-800 border-gray-300',
   FDE: 'bg-gray-100 text-gray-800 border-gray-300',
   Client: 'bg-gray-100 text-gray-800 border-gray-300',
@@ -150,7 +150,7 @@ export default function TeamMemberRow({ user }: { user: User }) {
                     required
                     className="input-field"
                   >
-                    <option value="PSM">PSM</option>
+                    <option value="DS">DS</option>
                     <option value="AD">AD</option>
                     <option value="FDE">FDE</option>
                     <option value="Client">Client</option>
