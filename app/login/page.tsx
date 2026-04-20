@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { signIn } from '@/app/actions/auth'
@@ -11,9 +11,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
-  // Skip login page entirely when auth is bypassed
+  // Skip login page entirely when auth is bypassed.
+  // Must be in useEffect — calling router.push during render crashes SSR
+  // (accesses window.location) and breaks Link prefetch for every page.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
+      router.replace('/dashboard')
+    }
+  }, [router])
+
   if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
-    router.push('/dashboard')
     return null
   }
 
