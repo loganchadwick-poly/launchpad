@@ -48,10 +48,12 @@ export default async function JIRATicketsPage() {
             </svg>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-brand-dark mb-1">JIRA Simulation Mode (MVP)</h3>
+            <h3 className="text-sm font-semibold text-brand-dark mb-1">JIRA Export Queue</h3>
             <p className="text-sm text-gray-700">
-              Tickets are automatically generated when UAT tests fail, issues are reported, or retests fail. 
-              Copy the formatted ticket text and paste it into JIRA manually, then mark as exported.
+              LaunchPad auto-drafts a JIRA ticket whenever a UAT case fails, a hypercare issue is reported,
+              or a retest fails — pre-formatted with component, reporter, and repro steps. Paste into JIRA
+              with one click, then mark as exported. Direct JIRA API push is a flag away once a service
+              account is connected.
             </p>
           </div>
         </div>

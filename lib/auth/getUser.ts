@@ -6,10 +6,10 @@ import type { User } from '@/lib/types/database.types'
 // To use: add NEXT_PUBLIC_BYPASS_AUTH=true to .env.local
 const MOCK_USER: User = {
   id: '00000000-0000-0000-0000-000000000000',
-  email: 'dev@launchpad.local',
-  name: 'Dev User',
+  email: 'logan.chadwick@poly-ai.com',
+  name: 'Logan',
   role: 'DS',
-  jira_username: null,
+  jira_username: 'logan.chadwick',
   created_at: new Date().toISOString(),
 }
 
