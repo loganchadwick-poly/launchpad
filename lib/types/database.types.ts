@@ -20,6 +20,48 @@ export type IssueStatus =
 
 export type TicketType = 'UAT' | 'Hypercare' | 'Retest'
 
+// =====================================================
+// UAT Sheet Column Config (flexible schema)
+// =====================================================
+// Drives the UAT sheet table UI. Core columns map to real fields on
+// uat_test_cases / uat_test_rounds. Custom columns come from CSV imports
+// and live in the extra_fields JSONB on the matching row.
+export type UATColumnKind = 'core' | 'custom'
+export type UATColumnLevel = 'case' | 'round'
+
+// All recognised core keys. Anything else is treated as custom.
+export type UATCoreColumnKey =
+  | 'test_label'
+  | 'test_script'
+  | 'tester_name'
+  | 'tester_phone'
+  | 'call_link'
+  | 'result'
+  | 'comments'
+  | 'polyai_resolution_comments'
+  | 'ready_to_retest'
+
+export interface UATColumn {
+  key: string // UATCoreColumnKey when kind='core', else slug
+  label: string
+  kind: UATColumnKind
+  level: UATColumnLevel
+  order: number
+}
+
+// Default baseline config used for new sheets (matches migration 012 default).
+export const DEFAULT_UAT_COLUMN_CONFIG: UATColumn[] = [
+  { key: 'test_label', label: 'Test Label', kind: 'core', level: 'case', order: 0 },
+  { key: 'test_script', label: 'Test Script', kind: 'core', level: 'case', order: 1 },
+  { key: 'tester_name', label: 'Client Tester Name', kind: 'core', level: 'round', order: 2 },
+  { key: 'tester_phone', label: 'Tester Phone Number', kind: 'core', level: 'case', order: 3 },
+  { key: 'call_link', label: 'Conversation Link', kind: 'core', level: 'round', order: 4 },
+  { key: 'result', label: 'Result', kind: 'core', level: 'round', order: 5 },
+  { key: 'comments', label: 'Comments', kind: 'core', level: 'round', order: 6 },
+  { key: 'polyai_resolution_comments', label: 'PolyAI Resolution Comments', kind: 'core', level: 'case', order: 7 },
+  { key: 'ready_to_retest', label: 'Ready to Retest?', kind: 'core', level: 'case', order: 8 },
+]
+
 export interface User {
   id: string
   email: string
@@ -47,6 +89,7 @@ export interface UATSheet {
   deployment_id: string
   name: string
   shareable_link_token: string
+  column_config: UATColumn[]
   created_at: string
   // Joined relations
   deployment?: Deployment
@@ -60,6 +103,7 @@ export interface UATTestRound {
   call_link: string
   result: UATResult | null
   comments: string
+  extra_fields: Record<string, string>
   created_at: string
 }
 
@@ -71,6 +115,7 @@ export interface UATTestCase {
   test_script: string
   ready_to_retest: boolean
   polyai_resolution_comments: string
+  extra_fields: Record<string, string>
   jira_ticket_id: string | null
   retest_jira_ticket_id: string | null
   created_at: string

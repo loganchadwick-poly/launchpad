@@ -89,3 +89,28 @@ export async function createUATSheet(formData: FormData) {
   revalidatePath(`/deployments/${formData.get('deployment_id')}`)
   return { success: true, data }
 }
+
+// Like createUATSheet but skips the 10 pre-populated empty rows — the
+// caller is about to import real rows into the new sheet instead.
+export async function createEmptyUATSheet(
+  deploymentId: string,
+  name: string,
+): Promise<{ success: true; id: string } | { error: string }> {
+  await requireAuth()
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('uat_sheets')
+    .insert({
+      deployment_id: deploymentId,
+      name,
+      shareable_link_token: generateShareableLink(),
+    })
+    .select('id')
+    .single()
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/deployments/${deploymentId}`)
+  return { success: true, id: data.id }
+}

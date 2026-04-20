@@ -5,6 +5,7 @@ import Link from 'next/link'
 import AddTestCaseButton from './AddTestCaseButton'
 import AddRowButton from './AddRowButton'
 import DraggableTestCaseTable from './DraggableTestCaseTable'
+import ImportTestCasesButton from './ImportTestCasesButton'
 import CopyLinkButton from '@/app/components/CopyLinkButton'
 import type { UATTestCase, UATTestRound } from '@/lib/types/database.types'
 
@@ -120,6 +121,7 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
           </div>
           <div className="flex items-center gap-3">
             <CopyLinkButton link={`/shared/uat/${uatSheet.shareable_link_token}`} label="Share with Client" />
+            <ImportTestCasesButton uatSheetId={id} />
             <AddTestCaseButton uatSheetId={id} />
           </div>
         </div>

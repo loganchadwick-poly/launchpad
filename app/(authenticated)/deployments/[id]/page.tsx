@@ -4,6 +4,7 @@ import { getUser } from '@/lib/auth/getUser'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import CreateUATSheetButton from './CreateUATSheetButton'
+import CreateAndImportUATSheetButton from './CreateAndImportUATSheetButton'
 import CreateIssueTrackerButton from './CreateIssueTrackerButton'
 import EditDeploymentButton from './EditDeploymentButton'
 import DeleteUATSheetButton from './DeleteUATSheetButton'
@@ -116,7 +117,10 @@ export default async function DeploymentDetailPage({ params }: { params: Promise
       <div className="mb-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-brand-dark">UAT Sheets</h2>
-          <CreateUATSheetButton deploymentId={id} />
+          <div className="flex items-center gap-2">
+            <CreateAndImportUATSheetButton deploymentId={id} />
+            <CreateUATSheetButton deploymentId={id} />
+          </div>
         </div>
 
         {!uatSheets || uatSheets.length === 0 ? (
