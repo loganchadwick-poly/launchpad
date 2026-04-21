@@ -299,19 +299,16 @@ async function importOneSheet(opts: {
     startingRowNumber: maxRow + 1,
   })
 
-  // Split into parents (group headers) and children so we can insert parents
-  // first, then link children via parent_row_id.
-  const parents = cases.filter((c) => c.is_group_parent)
-  const children = cases.filter((c) => !c.is_group_parent)
-
-  // Dedupe children against existing rows (parents we always insert — they're
-  // cheap and the current sheet dedupe key wouldn't find a group banner).
-  const dedupedChildren = children.filter(
+  // All cases are regular test cases now. Group banners (CHECK IN / CHECK OUT
+  // / etc.) are captured via `group_name` on each row rather than as a
+  // standalone parent row. The UI renders the banner by grouping consecutive
+  // rows that share the same `group_name`.
+  const deduped = cases.filter(
     (c) => !existingKeys.has(dedupeKey(c.test_label, c.test_script)),
   )
-  const skippedDuplicates = children.length - dedupedChildren.length
+  const skippedDuplicates = cases.length - deduped.length
 
-  if (parents.length === 0 && dedupedChildren.length === 0) {
+  if (deduped.length === 0) {
     return {
       inserted: 0,
       skippedEmpty,
@@ -321,64 +318,31 @@ async function importOneSheet(opts: {
     }
   }
 
-  // ------------------ Insert parents first ------------------
-  const parentIdByKey = new Map<string, string>() // rowNumber → UUID
-  if (parents.length > 0) {
-    const parentInsertRows = parents.map((p) => ({
-      uat_sheet_id: opts.targetUatSheetId,
-      row_number: p.rowNumber,
-      test_label: p.test_label,
-      test_script: p.test_script,
-      tester_phone: p.tester_phone,
-      polyai_resolution_comments: p.polyai_resolution_comments,
-      ready_to_retest: p.ready_to_retest,
-      extra_fields: p.extra_fields,
-      group_name: p.group_name,
-      group_order: 0,
-    }))
-    const { data: insertedParents, error: pErr } = await supabase
-      .from('uat_test_cases')
-      .insert(parentInsertRows)
-      .select('id, row_number')
-    if (pErr || !insertedParents) {
-      return { error: pErr?.message ?? 'Parent insert failed.' }
-    }
-    for (const p of insertedParents) {
-      parentIdByKey.set(String(p.row_number), p.id)
-    }
-  }
-
-  // ------------------ Insert children ------------------
+  // ------------------ Insert cases ------------------
   const insertedCaseIdByRow = new Map<number, string>()
-  if (dedupedChildren.length > 0) {
-    const childRows = dedupedChildren.map((c) => ({
-      uat_sheet_id: opts.targetUatSheetId,
-      row_number: c.rowNumber,
-      test_label: c.test_label,
-      test_script: c.test_script,
-      tester_phone: c.tester_phone,
-      polyai_resolution_comments: c.polyai_resolution_comments,
-      ready_to_retest: c.ready_to_retest,
-      extra_fields: c.extra_fields,
-      group_name: c.group_name,
-      parent_row_id: c.parent_key ? parentIdByKey.get(c.parent_key) ?? null : null,
-      group_order: 0,
-    }))
-    const { data: insertedChildren, error: cErr } = await supabase
-      .from('uat_test_cases')
-      .insert(childRows)
-      .select('id, row_number')
-    if (cErr || !insertedChildren) {
-      return { error: cErr?.message ?? 'Child insert failed.' }
-    }
-    for (const c of insertedChildren) insertedCaseIdByRow.set(c.row_number, c.id)
+  const caseRows = deduped.map((c) => ({
+    uat_sheet_id: opts.targetUatSheetId,
+    row_number: c.rowNumber,
+    test_label: c.test_label,
+    test_script: c.test_script,
+    tester_phone: c.tester_phone,
+    polyai_resolution_comments: c.polyai_resolution_comments,
+    ready_to_retest: c.ready_to_retest,
+    extra_fields: c.extra_fields,
+    group_name: c.group_name,
+    group_order: 0,
+  }))
+  const { data: insertedCases, error: cErr } = await supabase
+    .from('uat_test_cases')
+    .insert(caseRows)
+    .select('id, row_number')
+  if (cErr || !insertedCases) {
+    return { error: cErr?.message ?? 'Case insert failed.' }
   }
+  for (const c of insertedCases) insertedCaseIdByRow.set(c.row_number, c.id)
 
   // ------------------ Insert rounds ------------------
-  // Only for children — parent group rows get the default empty round 1
-  // from transform but we skip rounds at insert time (the UI doesn't render
-  // results on parents).
-  const roundsToInsert = dedupedChildren.flatMap((c) => {
+  const roundsToInsert = deduped.flatMap((c) => {
     const caseId = insertedCaseIdByRow.get(c.rowNumber)
     if (!caseId) return []
     return c.rounds.map((r) => ({
@@ -412,7 +376,7 @@ async function importOneSheet(opts: {
   if (skippedDuplicates > 0) warnings.unshift(`Skipped ${skippedDuplicates} duplicate row${skippedDuplicates === 1 ? '' : 's'}.`)
 
   return {
-    inserted: parents.length + dedupedChildren.length,
+    inserted: deduped.length,
     skippedEmpty,
     skippedDuplicates,
     warnings,

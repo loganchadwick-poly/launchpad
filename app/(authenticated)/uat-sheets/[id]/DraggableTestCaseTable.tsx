@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -52,6 +52,19 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
         .sort((a, b) => a.order - b.order),
     [columnConfig],
   )
+
+  // We mirror the server-provided test cases into local state so that delete
+  // feels instant — the server action also revalidates, but revalidation
+  // round-trips can make a deleted row appear "greyed out but still there"
+  // for a beat. Removing from local state immediately avoids that.
+  const [rows, setRows] = useState<TestCaseWithRounds[]>(testCases)
+  useEffect(() => {
+    setRows(testCases)
+  }, [testCases])
+  const handleRowDeleted = useCallback((id: string) => {
+    setRows((prev) => prev.filter((r) => r.id !== id && r.parent_row_id !== id))
+  }, [])
+
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   
@@ -71,9 +84,9 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
     const itemsById = new Map<string, TestCaseWithRounds>()
     const childrenByParent = new Map<string, TestCaseWithRounds[]>()
     const standalone: TestCaseWithRounds[] = []
-    
+
     // First pass: index all items and identify children
-    testCases.forEach(tc => {
+    rows.forEach(tc => {
       itemsById.set(tc.id, tc)
       if (tc.parent_row_id) {
         const children = childrenByParent.get(tc.parent_row_id) || []
@@ -81,13 +94,13 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
         childrenByParent.set(tc.parent_row_id, children)
       }
     })
-    
+
     // Second pass: build groups and standalone
     const groups: TestCaseGroup[] = []
-    testCases.forEach(tc => {
+    rows.forEach(tc => {
       // Skip if this is a child
       if (tc.parent_row_id) return
-      
+
       const children = childrenByParent.get(tc.id)
       if (children && children.length > 0) {
         // Sort children by group_order
@@ -97,9 +110,9 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
         standalone.push(tc)
       }
     })
-    
+
     return { groups, standaloneItems: standalone, itemsById }
-  }, [testCases])
+  }, [rows])
 
   // Create a flat list of IDs for DnD
   const sortableIds = useMemo(() => {
@@ -150,12 +163,12 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
     if (!draggedItem || !targetItem) return
     
     // Determine if dragged item is a parent with children
-    const draggedChildren = testCases.filter(tc => tc.parent_row_id === draggedId)
+    const draggedChildren = rows.filter(tc => tc.parent_row_id === draggedId)
     const isParent = draggedChildren.length > 0
-    
+
     // Check if target is in a group
     const targetIsChild = !!targetItem.parent_row_id
-    const targetIsParent = testCases.some(tc => tc.parent_row_id === targetId)
+    const targetIsParent = rows.some(tc => tc.parent_row_id === targetId)
     const targetInGroup = targetIsChild || targetIsParent
     
     // Case 1: Dragging a standalone onto another standalone - create new group
@@ -194,7 +207,7 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
         await createUATGroup(targetId, draggedId, uatSheetId)
       }
     }
-  }, [itemsById, testCases, uatSheetId])
+  }, [itemsById, rows, uatSheetId])
 
   // Check if a row should show drop indicator (being hovered over)
   const getDropState = useCallback((id: string) => {
@@ -216,7 +229,7 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
         <table className="w-full border-collapse">
           <thead className="bg-gray-100 sticky top-0">
             <tr className="border-b-2 border-gray-300">
-              <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-[140px] border-r border-gray-200">Issue Group</th>
+              <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-[140px] border-r border-gray-200">Group</th>
               <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-12 border-r border-gray-200">#</th>
               <th className="px-2 py-2 text-left text-xs font-semibold uppercase text-gray-600 min-w-[180px] border-r border-gray-200">Test Label</th>
               <th className="px-2 py-2 text-left text-xs font-semibold uppercase text-gray-600 min-w-[200px] border-r border-gray-200">Test Script</th>
@@ -241,18 +254,58 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
             </tr>
           </thead>
           <tbody className="bg-white">
-            {/* Render in row_number order, handling both groups and standalone */}
+            {/* Render in row_number order, handling both groups and standalone.
+                Additionally, consecutive rows that share the same `group_name`
+                (without an explicit parent_row_id — e.g. "CHECK IN" section
+                banners from an imported XLSX) get a banner row rendered
+                above them so the use-case boundary is visible without
+                creating a clutter test case row for the banner itself. */}
             {(() => {
               // Build ordered list based on row_number
               const allItems = [
                 ...groups.map(g => ({ type: 'group' as const, item: g, order: g.parent.row_number })),
                 ...standaloneItems.map(s => ({ type: 'standalone' as const, item: s, order: s.row_number })),
               ].sort((a, b) => a.order - b.order)
-              
-              return allItems.map(({ type, item }) => {
+
+              // Total column count for colSpan on the banner row.
+              const baseCols = 13 // 12 core <th>s + actions
+              const totalCols = baseCols + customColumns.length
+
+              let previousBanner: string | null = null
+
+              return allItems.flatMap(({ type, item }) => {
+                // Determine the banner label for this item. Explicit groups
+                // (with a parent row) opt out of banner rendering — the
+                // parent row itself displays the group metadata. Only
+                // standalone rows with a non-null `group_name` emit banners.
+                const bannerName =
+                  type === 'standalone'
+                    ? ((item as TestCaseWithRounds).group_name ?? null)
+                    : null
+                const bannerChanged = bannerName !== previousBanner
+                previousBanner = bannerName
+
+                const nodes: React.ReactNode[] = []
+
+                if (bannerChanged && bannerName) {
+                  nodes.push(
+                    <tr
+                      key={`banner-${bannerName}-${type === 'standalone' ? (item as TestCaseWithRounds).id : (item as TestCaseGroup).parent.id}`}
+                      className="bg-gray-50 border-y border-gray-200"
+                    >
+                      <td
+                        colSpan={totalCols}
+                        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600"
+                      >
+                        {bannerName}
+                      </td>
+                    </tr>,
+                  )
+                }
+
                 if (type === 'group') {
                   const group = item as TestCaseGroup
-                  return (
+                  nodes.push(
                     <GroupedTestCaseRows
                       key={`group-${group.parent.id}`}
                       parent={group.parent}
@@ -260,11 +313,12 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
                       uatSheetId={uatSheetId}
                       getDropState={getDropState}
                       customColumns={customColumns}
-                    />
+                      onRowDeleted={handleRowDeleted}
+                    />,
                   )
                 } else {
                   const testCase = item as TestCaseWithRounds
-                  return (
+                  nodes.push(
                     <DraggableTestCaseRow
                       key={testCase.id}
                       testCase={testCase}
@@ -273,9 +327,12 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId, columnCo
                       isParent={false}
                       dropState={getDropState(testCase.id)}
                       customColumns={customColumns}
-                    />
+                      onDeleted={handleRowDeleted}
+                    />,
                   )
                 }
+
+                return nodes
               })
             })()}
           </tbody>

@@ -6,7 +6,9 @@ import AddTestCaseButton from './AddTestCaseButton'
 import AddRowButton from './AddRowButton'
 import DraggableTestCaseTable from './DraggableTestCaseTable'
 import ImportTestCasesButton from './ImportTestCasesButton'
+import ManageColumnsButton from './ManageColumnsButton'
 import CopyLinkButton from '@/app/components/CopyLinkButton'
+import type { UATColumn } from '@/lib/types/database.types'
 import type { UATTestCase, UATTestRound } from '@/lib/types/database.types'
 
 interface TestCaseWithRounds extends UATTestCase {
@@ -121,6 +123,10 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
           </div>
           <div className="flex items-center gap-3">
             <CopyLinkButton link={`/shared/uat/${uatSheet.shareable_link_token}`} label="Share with Client" />
+            <ManageColumnsButton
+              uatSheetId={id}
+              columnConfig={(uatSheet.column_config as UATColumn[]) ?? []}
+            />
             <ImportTestCasesButton uatSheetId={id} />
             <AddTestCaseButton uatSheetId={id} />
           </div>
@@ -206,7 +212,7 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
         <div className="card overflow-hidden border border-gray-200">
           {/* Spreadsheet tip */}
           <div className="bg-gray-100 border-b border-gray-200 px-4 py-2 text-xs text-brand-dark">
-            <span className="font-medium">Tip:</span> Drag rows onto each other to group related issues. Click any cell to edit. Use the round badge (R1, R2...) to view testing history.
+            <span className="font-medium">Tip:</span> Drag rows onto each other to group related test cases. Click any cell to edit. Use the round badge (R1, R2...) to view testing history.
           </div>
           <div className="overflow-x-auto">
             <DraggableTestCaseTable
@@ -245,25 +251,25 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
             </div>
           </div>
           <div>
-            <p className="font-medium text-brand-dark">Issue Grouping:</p>
+            <p className="font-medium text-brand-dark">Grouping Test Cases:</p>
             <div className="mt-2 space-y-1.5 text-gray-600">
               <p className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
                 </svg>
-                <span>Drag one row onto another to group related issues</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
-                </svg>
-                <span>Grouped issues share a single JIRA ticket</span>
+                <span>Drag one row onto another to group related test cases by use case</span>
               </p>
               <p className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>Click the unlink icon to remove a row from a group</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
+                </svg>
+                <span>Issue tracking and JIRA ticket management lives on the Issue Trackers and JIRA Tickets pages</span>
               </p>
             </div>
           </div>

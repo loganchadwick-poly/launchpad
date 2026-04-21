@@ -17,6 +17,7 @@ interface Props {
   uatSheetId: string
   getDropState: (id: string) => 'dragging' | 'over' | null
   customColumns: UATColumn[]
+  onRowDeleted?: (id: string) => void
 }
 
 // Editable group name component
@@ -98,6 +99,7 @@ export default function GroupedTestCaseRows({
   uatSheetId,
   getDropState,
   customColumns,
+  onRowDeleted,
 }: Props) {
   const totalRows = 1 + children.length // Parent + children
   
@@ -148,9 +150,9 @@ export default function GroupedTestCaseRows({
         placeholder="Group name..."
       />
       
-      {/* Issue Count */}
+      {/* Test case count */}
       <p className="text-xs text-blue-600 px-2">
-        ({totalRows} issues)
+        ({totalRows} test case{totalRows === 1 ? '' : 's'})
       </p>
       
       {/* Parent Ticket Info */}
@@ -196,6 +198,7 @@ export default function GroupedTestCaseRows({
         groupCellContent={groupCellContent}
         groupRowSpan={totalRows}
         customColumns={customColumns}
+        onDeleted={onRowDeleted}
       />
 
       {/* Child Rows - no group cell (handled by rowSpan) */}
@@ -209,6 +212,7 @@ export default function GroupedTestCaseRows({
           dropState={getDropState(child.id)}
           showGroupCell={false}
           customColumns={customColumns}
+          onDeleted={onRowDeleted}
         />
       ))}
     </Fragment>

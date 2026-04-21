@@ -39,6 +39,9 @@ interface Props {
   // between "Resolution Notes" and "Ticket". Order matters — the parent
   // already sorts by `order` so we iterate as given.
   customColumns?: UATColumn[]
+  // Called after a successful delete so the parent table can optimistically
+  // remove the row from its local state (feels instant; no revalidate flicker).
+  onDeleted?: (id: string) => void
 }
 
 // Editable cell component for text inputs
@@ -278,6 +281,7 @@ export default function DraggableTestCaseRow({
   groupCellContent,
   groupRowSpan,
   customColumns = [],
+  onDeleted,
 }: Props) {
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -348,7 +352,15 @@ export default function DraggableTestCaseRow({
   async function handleDelete() {
     if (!confirm('Delete this test case and all its testing rounds?')) return
     setDeleting(true)
-    await deleteTestCase(testCase.id, uatSheetId)
+    const result = await deleteTestCase(testCase.id, uatSheetId)
+    // On success, tell the parent table to drop this row from local state
+    // immediately — server revalidation will also fire, but this avoids
+    // the "greyed-out but still there" flicker while we wait for it.
+    if (!result?.error) {
+      onDeleted?.(testCase.id)
+    } else {
+      setDeleting(false)
+    }
   }
 
   async function handleUngroup() {
