@@ -88,7 +88,7 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
         </svg>
-        Import CSV/XLSX
+        Import XLSX
       </button>
 
       {isOpen && (
@@ -115,18 +115,21 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
             {phase === 'idle' && (
               <div>
                 <p className="mb-4 text-sm text-gray-600">
-                  Upload a CSV or XLSX file of test cases. We&apos;ll use AI to match its columns to this sheet&apos;s fields. Unknown columns become new custom columns on the sheet.
+                  Upload an XLSX file of test cases. We&apos;ll use AI to match its columns to this sheet&apos;s fields, and unknown columns become new custom columns on the sheet.
+                </p>
+                <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                  <span className="font-semibold">Why XLSX?</span> XLSX preserves dropdown menus and checkboxes from Google Sheets or Excel, so we can recreate them as real dropdowns and checkboxes here. CSV is plain text and strips that metadata — in Google Sheets, use <span className="font-medium">File → Download → Microsoft Excel (.xlsx)</span>.
                 </p>
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-10 hover:border-brand-purple hover:bg-purple-50">
                   <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <span className="text-sm font-medium text-brand-dark">Click to choose a file</span>
-                  <span className="mt-1 text-xs text-gray-500">.csv or .xlsx, up to 5 MB</span>
+                  <span className="mt-1 text-xs text-gray-500">.xlsx, up to 5 MB</span>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     className="hidden"
                     onChange={handleFileChange}
                   />
