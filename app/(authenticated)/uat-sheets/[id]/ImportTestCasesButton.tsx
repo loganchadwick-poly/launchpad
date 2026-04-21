@@ -11,7 +11,9 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
-  const [mappings, setMappings] = useState<ColumnMapping[]>([])
+  // Mappings are keyed by sheet name so edits on one tab don't leak to another.
+  const [mappingsBySheet, setMappingsBySheet] = useState<Record<string, ColumnMapping[]>>({})
+  const [activeSheet, setActiveSheet] = useState<string | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -19,14 +21,14 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
     setPhase('idle')
     setError(null)
     setPreview(null)
-    setMappings([])
+    setMappingsBySheet({})
+    setActiveSheet(null)
     setResult(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   function close() {
     setIsOpen(false)
-    // Wait for close animation before resetting state
     setTimeout(reset, 200)
   }
 
@@ -46,14 +48,20 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
       return
     }
     setPreview(res.preview)
-    setMappings(res.preview.mappings)
+    const mapBySheet: Record<string, ColumnMapping[]> = {}
+    for (const s of res.preview.sheets) mapBySheet[s.sheetName] = s.mappings
+    setMappingsBySheet(mapBySheet)
+    setActiveSheet(res.preview.sheets[0]?.sheetName ?? null)
     setPhase('preview')
   }
 
-  function toggleSkip(index: number) {
-    setMappings((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, skip: !m.skip } : m)),
-    )
+  function toggleSkip(sheetName: string, index: number) {
+    setMappingsBySheet((prev) => ({
+      ...prev,
+      [sheetName]: (prev[sheetName] ?? []).map((m, i) =>
+        i === index ? { ...m, skip: !m.skip } : m,
+      ),
+    }))
   }
 
   async function handleConfirm() {
@@ -65,7 +73,10 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
       uatSheetId,
       payloadB64: preview.payloadB64,
       payloadKind: preview.payloadKind,
-      mappings,
+      sheets: preview.sheets.map((s) => ({
+        sheetName: s.sheetName,
+        mappings: mappingsBySheet[s.sheetName] ?? s.mappings,
+      })),
     })
 
     if (!res.success) {
@@ -77,7 +88,13 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
     setPhase('done')
   }
 
-  const activeMappingCount = mappings.filter((m) => !m.skip).length
+  const activeSheetPreview = preview?.sheets.find((s) => s.sheetName === activeSheet)
+  const activeMappings = activeSheet ? mappingsBySheet[activeSheet] ?? [] : []
+  const totalActiveMappings = Object.values(mappingsBySheet).reduce(
+    (sum, arr) => sum + arr.filter((m) => !m.skip).length,
+    0,
+  )
+  const totalRows = preview?.sheets.reduce((sum, s) => sum + s.totalRows, 0) ?? 0
 
   return (
     <>
@@ -93,7 +110,7 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 py-10">
-          <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl">
+          <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-brand-dark">
                 {phase === 'done' ? 'Import complete' : 'Import Test Cases'}
@@ -119,6 +136,9 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                 </p>
                 <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
                   <span className="font-semibold">Why XLSX?</span> XLSX preserves dropdown menus and checkboxes from Google Sheets or Excel, so we can recreate them as real dropdowns and checkboxes here. CSV is plain text and strips that metadata — in Google Sheets, use <span className="font-medium">File → Download → Microsoft Excel (.xlsx)</span>.
+                </p>
+                <p className="mb-4 rounded-lg border border-purple-200 bg-purple-50 p-3 text-xs text-purple-800">
+                  <span className="font-semibold">Multi-tab files:</span> if your XLSX has more than one worksheet, the first tab populates this sheet and each additional tab creates a new UAT sheet on this deployment, named after its tab.
                 </p>
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-10 hover:border-brand-purple hover:bg-purple-50">
                   <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -150,18 +170,65 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
               </div>
             )}
 
-            {/* PREVIEW — detected mapping */}
-            {phase === 'preview' && preview && (
+            {/* PREVIEW — per-sheet tabs + mappings */}
+            {phase === 'preview' && preview && activeSheetPreview && (
               <div>
                 <div className="mb-4 rounded-lg bg-gray-50 p-3">
                   <p className="text-sm text-gray-700">
                     <span className="font-semibold">{preview.fileName}</span>
                     {' · '}
-                    {preview.totalRows} row{preview.totalRows === 1 ? '' : 's'}
+                    {preview.sheets.length} tab{preview.sheets.length === 1 ? '' : 's'}
                     {' · '}
-                    {activeMappingCount} of {mappings.length} columns will be imported
+                    {totalRows} data row{totalRows === 1 ? '' : 's'}
+                    {' · '}
+                    {totalActiveMappings} column{totalActiveMappings === 1 ? '' : 's'} to import
                   </p>
+                  {preview.sheets.length > 1 && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      Tab 1 populates this sheet; tabs 2+ create new sibling UAT sheets named after the source tab.
+                    </p>
+                  )}
                 </div>
+
+                {/* Sheet tabs */}
+                {preview.sheets.length > 1 && (
+                  <div className="mb-4 flex gap-1 border-b border-gray-200 overflow-x-auto">
+                    {preview.sheets.map((s, idx) => (
+                      <button
+                        key={s.sheetName}
+                        onClick={() => setActiveSheet(s.sheetName)}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                          activeSheet === s.sheetName
+                            ? 'border-brand-purple text-brand-purple'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {s.sheetName}
+                        <span className="ml-2 text-xs text-gray-400">
+                          {s.totalRows} row{s.totalRows === 1 ? '' : 's'}
+                        </span>
+                        {idx === 0 ? (
+                          <span className="ml-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                            this sheet
+                          </span>
+                        ) : (
+                          <span className="ml-1 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+                            new sheet
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Warnings for the active sheet */}
+                {activeSheetPreview.warnings.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    {activeSheetPreview.warnings.map((w, i) => (
+                      <p key={i} className="text-sm text-amber-800">{w}</p>
+                    ))}
+                  </div>
+                )}
 
                 {preview.warnings.length > 0 && (
                   <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -183,7 +250,7 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {mappings.map((m, i) => (
+                      {activeMappings.map((m, i) => (
                         <tr key={i} className={m.skip ? 'bg-gray-50 text-gray-400' : ''}>
                           <td className="px-3 py-2 font-medium">{m.sourceHeader || <em className="text-gray-400">(blank)</em>}</td>
                           <td className="px-3 py-2">
@@ -218,7 +285,7 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button
-                              onClick={() => toggleSkip(i)}
+                              onClick={() => toggleSkip(activeSheetPreview.sheetName, i)}
                               className="text-xs font-medium text-brand-purple hover:underline"
                             >
                               {m.skip ? 'Include' : 'Skip'}
@@ -234,16 +301,17 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                   <button onClick={close} className="btn-outline flex-1">Cancel</button>
                   <button
                     onClick={handleConfirm}
-                    disabled={activeMappingCount === 0}
+                    disabled={totalActiveMappings === 0}
                     className="btn-primary flex-1 disabled:opacity-50"
                   >
-                    Import {preview.totalRows} row{preview.totalRows === 1 ? '' : 's'}
+                    Import {totalRows} row{totalRows === 1 ? '' : 's'}
+                    {preview.sheets.length > 1 ? ` across ${preview.sheets.length} sheets` : ''}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* DONE — result summary */}
+            {/* DONE — per-sheet result summary */}
             {phase === 'done' && result && (
               <div>
                 <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-4">
@@ -253,11 +321,24 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                     </svg>
                     <div>
                       <p className="text-sm font-semibold text-green-900">
-                        Imported {result.inserted} test case{result.inserted === 1 ? '' : 's'}
+                        Imported {result.totalInserted} test case{result.totalInserted === 1 ? '' : 's'} across {result.sheets.length} sheet{result.sheets.length === 1 ? '' : 's'}
                       </p>
-                      <p className="mt-0.5 text-xs text-green-800">
-                        Sheet now has {result.newColumnConfig.length} column{result.newColumnConfig.length === 1 ? '' : 's'} configured.
-                      </p>
+                      <ul className="mt-2 space-y-1 text-xs text-green-800">
+                        {result.sheets.map((s) => (
+                          <li key={s.uatSheetId}>
+                            <span className="font-medium">{s.uatSheetName}</span>
+                            {s.isNew && <span className="ml-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">new</span>}
+                            {' — '}
+                            {s.inserted} row{s.inserted === 1 ? '' : 's'}
+                            {s.skippedDuplicates > 0 ? `, ${s.skippedDuplicates} duplicate${s.skippedDuplicates === 1 ? '' : 's'} skipped` : ''}
+                            {s.isNew && (
+                              <a href={`/uat-sheets/${s.uatSheetId}`} className="ml-2 text-brand-purple underline">
+                                open
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
                 </div>
@@ -268,6 +349,21 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                     {result.warnings.map((w, i) => (
                       <p key={i} className="text-sm text-amber-800">{w}</p>
                     ))}
+                  </div>
+                )}
+
+                {result.sheets.flatMap((s) =>
+                  s.warnings.map((w) => `${s.sheetName}: ${w}`),
+                ).length > 0 && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 max-h-40 overflow-y-auto">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">Per-sheet notes</p>
+                    {result.sheets.flatMap((s) =>
+                      s.warnings.map((w, i) => (
+                        <p key={`${s.sheetName}-${i}`} className="text-sm text-amber-800">
+                          <span className="font-medium">{s.sheetName}:</span> {w}
+                        </p>
+                      )),
+                    )}
                   </div>
                 )}
 

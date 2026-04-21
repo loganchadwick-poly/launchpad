@@ -54,7 +54,7 @@ export async function mapHeadersWithAI(
   // Try AI first; fall back to pure heuristics if the API key is missing or
   // the call fails. The feature must not be blocked on AI availability.
   const apiKey = process.env.ANTHROPIC_API_KEY
-  const mappings = !apiKey
+  let mappings = !apiKey
     ? headers.map((h, i) => heuristicMatch(h, i))
     : await (async () => {
         try {
@@ -66,6 +66,17 @@ export async function mapHeadersWithAI(
         }
       })()
 
+  // Auto-assign rounds when a round-level target key appears more than once
+  // (Vixxo-style: "Tester Name | Result | Comments" repeated three times for
+  // rounds 1/2/3, without explicit round labels).
+  mappings = inferRoundsFromRepetition(mappings)
+
+  // Skip any columns with empty headers — trailing blank columns from the
+  // XLSX show up here and shouldn't import as mystery customs.
+  for (const m of mappings) {
+    if (m.sourceHeader.trim() === '') m.skip = true
+  }
+
   // Attach any XLSX data-validation rules we captured to the matching mapping.
   // Useful in two places: (1) we surface dropdown/checkbox UI in the table for
   // custom columns, and (2) we upgrade auto-slugged case-level custom columns
@@ -75,6 +86,48 @@ export async function mapHeadersWithAI(
     if (v) m.validation = v
   }
   return mappings
+}
+
+// When a round-level key shows up multiple times in the same header row,
+// assume the columns form repeating round blocks. Nth occurrence → round N.
+// We also downgrade *duplicate* case-level matches to custom so the data
+// isn't overwritten by the last occurrence during transform.
+function inferRoundsFromRepetition(mappings: ColumnMapping[]): ColumnMapping[] {
+  const seenRoundIndex = new Map<string, number>() // targetKey → count of times seen
+  const seenCase = new Set<string>()
+
+  return mappings.map((m) => {
+    if (m.skip || m.kind !== 'core') return m
+
+    if (m.level === 'round') {
+      // Count occurrences per (targetKey, base) so that round-1 "Result" and
+      // round-2 "Retest Result" are tracked separately. Each cluster of
+      // repeats then fans out into consecutive rounds:
+      //   - "Tester Name" (base=1) repeating → 1, 2, 3...
+      //   - "Retest Result" (base=2) repeating → 2, 3, 4... (Vixxo case)
+      const base = m.round ?? 1
+      const bucketKey = `${m.targetKey}@${base}`
+      const n = (seenRoundIndex.get(bucketKey) ?? 0) + 1
+      seenRoundIndex.set(bucketKey, n)
+      const round = base + (n - 1)
+      return { ...m, round }
+    }
+
+    // Case-level: if we already saw this key in the row, convert the dupe
+    // into a custom column so the repeat doesn't clobber the first copy.
+    if (seenCase.has(m.targetKey)) {
+      return {
+        ...m,
+        targetKey: slugify(`${m.targetKey}_${m.sourceIndex}`),
+        label: m.sourceHeader.trim() || m.label,
+        kind: 'custom',
+        level: 'case',
+        round: null,
+      }
+    }
+    seenCase.add(m.targetKey)
+    return m
+  })
 }
 
 async function callClaude(

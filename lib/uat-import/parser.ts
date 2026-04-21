@@ -1,144 +1,399 @@
 // Server-side file parser for CSV and XLSX.
-// Always produces { headers: string[], rows: string[][] } — headers are the
-// first non-empty row, rows are everything else (still string-valued so the
-// AI mapper sees the same raw shape the user sees).
 //
-// XLSX: uses exceljs (not SheetJS community) so we can lift data-validation
-// rules off each column — dropdowns and Google Sheets–style checkboxes turn
-// into real dropdowns/checkboxes in the UAT sheet table. CSV imports can't
-// carry validation rules (format is plain text), so validations is empty
-// for CSVs.
+// Returns a per-sheet structure: one ParsedSheet per worksheet in an XLSX
+// (CSV always yields exactly one sheet). Each sheet carries both the raw row
+// grid and a "logical" header/data split so downstream code can deal with
+// exports where headers aren't on row 1.
+//
+// XLSX-specific features we lift off the file:
+//   - Data validations → dropdowns/checkboxes (per column)
+//   - Merged cells → used to detect "section" rows like a merged CHECK IN
+//     label that groups the rows below it
+//   - Multi-sheet workbooks → each tab becomes its own UAT sheet upstream
+//
+// CSV imports skip validations and groups entirely and just produce a single
+// ParsedSheet with row 0 as the headers.
 
 import Papa from 'papaparse'
 import ExcelJS from 'exceljs'
 import type { ColumnValidation } from './types'
 
-export interface ParsedFile {
+export interface GroupRow {
+  // Index into sheet.rawRows where the group header lives.
+  rowIndex: number
+  // The text of the group label (e.g. "CHECK IN").
+  name: string
+}
+
+export interface ParsedSheet {
+  // Worksheet name ("Sheet1", "Inbound", etc.). For CSV imports this is the
+  // file base name without the extension.
+  name: string
+  // Full raw grid after stringifying cells — includes title/instruction rows,
+  // the header row, group rows, and data rows. Useful for debugging + for
+  // surfacing the first few rows in the preview UI.
+  rawRows: string[][]
+  // Logical column headers (the row we picked as the header row).
   headers: string[]
+  // Data rows below the header row, with group rows filtered out. Each row
+  // is padded/truncated to headers.length.
   rows: string[][]
-  // sourceIndex → validation. Only ever populated for XLSX inputs and only
-  // when the source column actually has a dataValidation rule attached.
+  // Row index (0-based into rawRows) we chose as the header row. 0 for simple
+  // files, >0 for files with title/instruction rows above the headers.
+  headerRowIndex: number
+  // Rows we detected as "section" group headers (merged cell spanning most
+  // of the row, short label). Indices are into rawRows. Each group applies
+  // to the data rows between it and the next group row (or end of sheet).
+  groupRows: GroupRow[]
+  // sourceIndex → validation. Only populated for XLSX inputs and only when
+  // the source column actually has a dataValidation rule attached.
   validations: Map<number, ColumnValidation>
+}
+
+export interface ParsedWorkbook {
+  sheets: ParsedSheet[]
 }
 
 export async function parseBuffer(
   buffer: Buffer,
   kind: 'csv' | 'xlsx',
-): Promise<ParsedFile> {
+  fileName?: string,
+): Promise<ParsedWorkbook> {
   if (kind === 'csv') {
-    return parseCsv(buffer.toString('utf8'))
+    return { sheets: [parseCsv(buffer.toString('utf8'), fileName)] }
   }
   return parseXlsx(buffer)
 }
 
-function parseCsv(text: string): ParsedFile {
-  // skipEmptyLines: 'greedy' drops rows that are completely blank *and* rows
-  // where every cell is just whitespace. We still need a second pass below to
-  // drop rows that PapaParse kept because they had a delimiter but no content.
-  const result = Papa.parse<string[]>(text, {
-    skipEmptyLines: 'greedy',
-  })
-  const table = result.data.filter((r) => r.some((c) => (c ?? '').trim() !== ''))
-  if (table.length === 0) return { headers: [], rows: [], validations: new Map() }
-  const headers = (table[0] ?? []).map((h) => (h ?? '').trim())
-  const rows = table.slice(1).map((r) => normaliseRow(r, headers.length))
-  return { headers, rows, validations: new Map() }
+function parseCsv(text: string, fileName?: string): ParsedSheet {
+  const name = fileName ? fileName.replace(/\.[^.]+$/, '') : 'Sheet1'
+  const result = Papa.parse<string[]>(text, { skipEmptyLines: 'greedy' })
+  const table = result.data
+    .map((r) => (r ?? []).map((c) => (c ?? '').trim()))
+    .filter((r) => r.some((c) => c !== ''))
+
+  if (table.length === 0) {
+    return emptySheet(name)
+  }
+
+  const headerRowIndex = detectHeaderRowIndex(table)
+  const headers = (table[headerRowIndex] ?? []).map((h) => h.trim())
+  const dataRows = table
+    .slice(headerRowIndex + 1)
+    .map((r) => normaliseRow(r, headers.length))
+
+  return {
+    name,
+    rawRows: table,
+    headers,
+    rows: dataRows,
+    headerRowIndex,
+    groupRows: [], // CSV has no merge info; groups must come from data structure
+    validations: new Map(),
+  }
 }
 
-async function parseXlsx(buffer: Buffer): Promise<ParsedFile> {
+async function parseXlsx(buffer: Buffer): Promise<ParsedWorkbook> {
   const workbook = new ExcelJS.Workbook()
-  // Node Buffer → ArrayBuffer slice so exceljs sees it as a binary input.
   const arrayBuffer = buffer.buffer.slice(
     buffer.byteOffset,
     buffer.byteOffset + buffer.byteLength,
   ) as ArrayBuffer
   await workbook.xlsx.load(arrayBuffer)
 
-  const sheet = workbook.worksheets[0]
-  if (!sheet) return { headers: [], rows: [], validations: new Map() }
+  const sheets: ParsedSheet[] = []
+  for (const sheet of workbook.worksheets) {
+    if (sheet.state === 'hidden' || sheet.state === 'veryHidden') continue
+    sheets.push(parseOneSheet(workbook, sheet))
+  }
 
-  // Collect rows as string-valued arrays. exceljs 1-indexes everything, so
-  // row 1 col 1 is the top-left cell. We want an array-of-arrays shape.
-  const rawRows: string[][] = []
+  return { sheets }
+}
+
+function parseOneSheet(
+  workbook: ExcelJS.Workbook,
+  sheet: ExcelJS.Worksheet,
+): ParsedSheet {
+  // Pull every row as strings. exceljs 1-indexes cells; the merged-cell
+  // duplicates across the range are handy for header detection because
+  // "CHECK IN" merged across 13 columns reads as 13 copies of "CHECK IN".
   const maxCol = sheet.actualColumnCount || sheet.columnCount || 0
+  const rawRows: string[][] = []
   sheet.eachRow({ includeEmpty: true }, (row) => {
     const cells: string[] = []
     for (let c = 1; c <= maxCol; c++) {
-      const cell = row.getCell(c)
-      cells.push(stringifyCell(cell.value))
+      cells.push(stringifyCell(row.getCell(c).value).trim())
     }
     rawRows.push(cells)
   })
 
-  const nonEmpty = rawRows.filter((r) => r.some((c) => c.trim() !== ''))
-  if (nonEmpty.length === 0) return { headers: [], rows: [], validations: new Map() }
+  // Trim leading/trailing fully-empty rows so our row indices line up with
+  // "first row that has content".
+  const firstContent = rawRows.findIndex((r) => r.some((c) => c !== ''))
+  const trimmed = firstContent === -1 ? [] : rawRows.slice(firstContent)
+  if (trimmed.length === 0) return emptySheet(sheet.name || 'Sheet')
 
-  const headers = nonEmpty[0].map((h) => h.trim())
-  const dataRows = nonEmpty.slice(1).map((r) => normaliseRow(r, headers.length))
+  const merges = readMerges(sheet)
+  const groupRows = detectGroupRowsFromMerges(trimmed, merges, firstContent, maxCol)
+  const groupRowSet = new Set(groupRows.map((g) => g.rowIndex))
 
-  // Walk the sheet's data validations. exceljs stores them as a map of
-  // cell/range address → validation rule. We reduce this to one validation
-  // per header column (0-indexed) so the mapper + transform can use it.
-  const validations = extractColumnValidations(
-    workbook,
-    sheet,
-    headers.length,
-    dataRows,
+  // Pick the header row, excluding group rows (a merged banner is never the
+  // header). Limit the search to the first 15 non-group rows so we don't
+  // scan a whole 1000-row sheet.
+  const headerRowIndex = detectHeaderRowIndex(
+    trimmed,
+    (i) => !groupRowSet.has(i),
   )
+  const headers = (trimmed[headerRowIndex] ?? []).map((h) => h.trim())
 
-  return { headers, rows: dataRows, validations }
+  const dataRows: string[][] = []
+  for (let i = headerRowIndex + 1; i < trimmed.length; i++) {
+    if (groupRowSet.has(i)) continue // group markers aren't data
+    const row = trimmed[i]
+    if (row.every((c) => c === '')) continue
+    dataRows.push(normaliseRow(row, headers.length))
+  }
+
+  const validations = extractColumnValidations(workbook, sheet, headers.length)
+
+  return {
+    name: sheet.name || 'Sheet',
+    rawRows: trimmed,
+    headers,
+    rows: dataRows,
+    headerRowIndex,
+    groupRows,
+    validations,
+  }
 }
 
-// Stringify an exceljs cell value so it looks like what the user sees in Excel.
-// Handles: strings, numbers, booleans, Dates, rich text, formula results,
-// hyperlinks.
+function emptySheet(name: string): ParsedSheet {
+  return {
+    name,
+    rawRows: [],
+    headers: [],
+    rows: [],
+    headerRowIndex: 0,
+    groupRows: [],
+    validations: new Map(),
+  }
+}
+
+// ---------------------------------------------------------------
+// Header-row detection
+// ---------------------------------------------------------------
+// Walks the first ~15 rows and picks the row that looks most like a labels
+// row. Heuristic:
+//   + fill rate (more non-empty cells → better)
+//   + short cells (labels are 1-6 words; title blurbs are 20+)
+//   + distinct values (a row of identical "CHECK IN" copies isn't headers)
+//   + is followed by at least one data row
+//   - penalise rows that are all-caps single-word repetitions (section labels)
+//   - penalise rows with long paragraph-style cells
+//
+// If nothing scores above 0 we fall back to row 0 so the caller still sees
+// something. The eligibility filter lets the XLSX path exclude merged
+// "banner" rows that we already classified as groups.
+function detectHeaderRowIndex(
+  rows: string[][],
+  isEligible: (rowIndex: number) => boolean = () => true,
+): number {
+  const limit = Math.min(15, rows.length)
+  let bestIdx = 0
+  let bestScore = -Infinity
+
+  for (let i = 0; i < limit; i++) {
+    if (!isEligible(i)) continue
+    const score = scoreHeaderCandidate(rows, i)
+    if (score > bestScore) {
+      bestScore = score
+      bestIdx = i
+    }
+  }
+  return bestIdx
+}
+
+function scoreHeaderCandidate(rows: string[][], rowIndex: number): number {
+  const row = rows[rowIndex] ?? []
+  const width = row.length
+  if (width === 0) return -Infinity
+
+  const trimmed = row.map((c) => (c ?? '').trim())
+  const nonEmpty = trimmed.filter((c) => c !== '')
+  const fillRate = nonEmpty.length / width
+  if (nonEmpty.length < 2) return -Infinity // a single-cell row isn't a header
+
+  // Any subsequent row with content? Without data below, this can't be the
+  // header (empty sheet, or the "header" is actually a footer).
+  const hasDataBelow = rows
+    .slice(rowIndex + 1)
+    .some((r) => r.some((c) => c.trim() !== ''))
+  if (!hasDataBelow) return -Infinity
+
+  // Average cell length on non-empty cells.
+  const avgLen =
+    nonEmpty.reduce((sum, c) => sum + c.length, 0) / nonEmpty.length
+
+  // Distinct ratio: a banner row of N identical cells has very low distinct
+  // ratio. Real headers have mostly unique labels.
+  const distinct = new Set(nonEmpty.map((c) => c.toLowerCase())).size
+  const distinctRatio = distinct / nonEmpty.length
+
+  // Paragraph penalty: a title/description row tends to have one very long
+  // cell (>120 chars) and mostly empties.
+  const hasParagraph = nonEmpty.some((c) => c.length > 120)
+
+  let score = 0
+  score += fillRate * 40 // up to +40
+  score += distinctRatio * 40 // up to +40
+  // Favour labels in the 3-40 char range, taper off outside.
+  if (avgLen >= 3 && avgLen <= 50) score += 20
+  else if (avgLen < 3) score -= 10
+  else score -= Math.min(30, avgLen - 50) // long-text rows get penalised
+
+  if (hasParagraph) score -= 40
+
+  // Penalty for looking like a section banner (e.g. "CHECK IN" repeated).
+  if (distinctRatio < 0.3) score -= 30
+
+  return score
+}
+
+// ---------------------------------------------------------------
+// Group-row detection (merged "section header" rows)
+// ---------------------------------------------------------------
+function readMerges(sheet: ExcelJS.Worksheet): Array<{
+  top: number
+  left: number
+  bottom: number
+  right: number
+}> {
+  // `merges` lives on the internal model; the public Worksheet type doesn't
+  // expose it, so we reach through an untyped cast.
+  const raw: string[] = (sheet as unknown as { model?: { merges?: string[] } }).model?.merges ?? []
+  const out: Array<{ top: number; left: number; bottom: number; right: number }> = []
+  for (const addr of raw) {
+    const parsed = parseRangeAddress(addr)
+    if (parsed) out.push(parsed)
+  }
+  return out
+}
+
+// A row is a "group header" row if a single merged range spans most of its
+// width AND the non-empty cells (after accounting for merge duplication) are
+// all the same short label. We then record that label.
+function detectGroupRowsFromMerges(
+  rawRows: string[][],
+  merges: Array<{ top: number; left: number; bottom: number; right: number }>,
+  firstContentRow: number,
+  maxCol: number,
+): GroupRow[] {
+  if (rawRows.length === 0 || maxCol === 0) return []
+
+  const result: GroupRow[] = []
+  // Map from local rawRow index → merges intersecting that row.
+  const mergesByLocalRow = new Map<
+    number,
+    Array<{ top: number; left: number; bottom: number; right: number }>
+  >()
+  for (const m of merges) {
+    // Convert the sheet-absolute row range to rawRows-local indices.
+    const localTop = m.top - 1 - firstContentRow
+    const localBottom = m.bottom - 1 - firstContentRow
+    for (let r = localTop; r <= localBottom; r++) {
+      if (r < 0 || r >= rawRows.length) continue
+      const arr = mergesByLocalRow.get(r) ?? []
+      arr.push(m)
+      mergesByLocalRow.set(r, arr)
+    }
+  }
+
+  for (let i = 0; i < rawRows.length; i++) {
+    const row = rawRows[i]
+    const rowMerges = mergesByLocalRow.get(i) ?? []
+    if (rowMerges.length === 0) continue
+
+    // Find the widest merge that sits on this row and covers at least 50% of
+    // the used columns. That's the "banner" merge.
+    const widest = rowMerges
+      .map((m) => ({ m, width: m.right - m.left + 1 }))
+      .sort((a, b) => b.width - a.width)[0]
+    if (widest.width < Math.max(3, Math.floor(maxCol * 0.5))) continue
+
+    // Grab the merged cell's value. exceljs stores the value on the top-left
+    // cell of the merge and replicates it to the others, so row[left-1] works
+    // (left is 1-indexed in merges, 0-indexed in row arrays).
+    const label = (row[widest.m.left - 1] ?? '').trim()
+    if (!label) continue
+    if (label.length > 80) continue // paragraph-style blurb, not a group name
+
+    // Everything outside the banner merge on this row should be blank or
+    // contain the same label (e.g. when two merges on the same row both say
+    // "CHECK IN"). Otherwise it's a data row.
+    let dissent = 0
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c]
+      if (v === '' || v === label) continue
+      dissent++
+    }
+    if (dissent > 0) continue
+
+    result.push({ rowIndex: i, name: label })
+  }
+
+  return result
+}
+
+function parseRangeAddress(
+  addr: string,
+): { top: number; left: number; bottom: number; right: number } | null {
+  // e.g. "A3:M3" or "B7"
+  const m = addr.match(
+    /^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/,
+  )
+  if (!m) return null
+  const left = colLettersToIndex(m[1]) + 1
+  const top = parseInt(m[2], 10)
+  const right = m[3] ? colLettersToIndex(m[3]) + 1 : left
+  const bottom = m[4] ? parseInt(m[4], 10) : top
+  return { top, left, bottom, right }
+}
+
+// ---------------------------------------------------------------
+// Stringifying + misc
+// ---------------------------------------------------------------
 function stringifyCell(value: ExcelJS.CellValue | undefined): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value instanceof Date) return value.toISOString()
 
-  // Rich text: join all run texts
   if (typeof value === 'object' && 'richText' in value && Array.isArray(value.richText)) {
     return value.richText.map((r) => r.text ?? '').join('')
   }
-  // Hyperlink: prefer the visible text, fall back to the URL
   if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') {
     return value.text
   }
-  // Formula result
   if (typeof value === 'object' && 'result' in value) {
     return stringifyCell(value.result as ExcelJS.CellValue)
   }
-  // Error
   if (typeof value === 'object' && 'error' in value) {
     return String(value.error)
   }
-
   return String(value)
 }
 
-// exceljs data validation model:
-//   sheet.dataValidations.model = {
-//     'B2:B100': { type: 'list', allowBlank, formulae: ['"Pass,Fail,Blocked"'] },
-//     'C2:C100': { type: 'list', formulae: ['Sheet2!$A$1:$A$5'] },
-//     'D2':     { type: 'list', formulae: ['"TRUE,FALSE"'] },
-//   }
-// We want: for each header column index, compute a ColumnValidation if ANY
-// cell in that column (below the header) has a list-type validation.
+// ---------------------------------------------------------------
+// Data-validation extraction (unchanged from single-sheet version)
+// ---------------------------------------------------------------
 function extractColumnValidations(
   workbook: ExcelJS.Workbook,
   sheet: ExcelJS.Worksheet,
   columnCount: number,
-  _dataRows: string[][],
 ): Map<number, ColumnValidation> {
   const result = new Map<number, ColumnValidation>()
-
-  // exceljs's public types don't expose dataValidations; it's stable on the
-  // runtime object (see workbook-reader → DataValidations.model).
   const dv = (sheet as unknown as { dataValidations?: { model?: Record<string, { type?: string; formulae?: string[] }> } }).dataValidations
   const model: Record<string, { type?: string; formulae?: string[] }> = dv?.model ?? {}
-
   if (Object.keys(model).length === 0) return result
 
   for (const [address, rule] of Object.entries(model)) {
@@ -149,8 +404,6 @@ function extractColumnValidations(
     const options = resolveListFormula(workbook, formula)
     if (!options || options.length === 0) continue
 
-    // Google Sheets checkboxes: validation list of exactly TRUE/FALSE →
-    // treat the whole column as boolean.
     const normUpper = options.map((o) => o.trim().toUpperCase())
     const isBoolean =
       normUpper.length === 2 &&
@@ -161,9 +414,7 @@ function extractColumnValidations(
       ? { dataType: 'boolean' }
       : { dataType: 'list', options: dedupe(options.map((o) => o.trim()).filter((o) => o !== '')) }
 
-    // Map the address back to one or more column indices (0-based).
     for (const colIndex of columnsFromAddress(address, columnCount)) {
-      // Prefer the first validation we see per column; warn on conflict.
       if (!result.has(colIndex)) result.set(colIndex, validation)
     }
   }
@@ -171,17 +422,9 @@ function extractColumnValidations(
   return result
 }
 
-// "B2:B100"  → [1]
-// "A1:D1"    → [0, 1, 2, 3]
-// "'Sheet1'!B2:B100" → [1]
-// Treats all columns spanned by the range. Filters out indices ≥ columnCount
-// so we don't invent phantom columns.
 function columnsFromAddress(address: string, columnCount: number): number[] {
-  // Strip sheet qualifier like 'Sheet1'! or Sheet1!
   const bare = address.replace(/^(?:'[^']+'|[^!]+)!/, '')
-
   const cols = new Set<number>()
-  // A range may be multiple comma-separated parts, e.g. "B2:B10,D2:D10"
   for (const part of bare.split(',')) {
     const match = part.trim().match(/^\$?([A-Z]+)\$?\d+(?::\$?([A-Z]+)\$?\d+)?$/)
     if (!match) continue
@@ -195,7 +438,6 @@ function columnsFromAddress(address: string, columnCount: number): number[] {
   return Array.from(cols)
 }
 
-// "A"=0, "B"=1, ..., "Z"=25, "AA"=26, ...
 function colLettersToIndex(letters: string): number {
   let n = 0
   for (const ch of letters) {
@@ -204,25 +446,17 @@ function colLettersToIndex(letters: string): number {
   return n - 1
 }
 
-// Given a data-validation list formula, return the concrete option values.
-// Supported shapes:
-//   - Inline:  `"Option1,Option2,Option3"`  (quoted, comma-separated)
-//   - Range:   `Sheet2!$A$1:$A$5`           (cells in another sheet)
-//   - Range:   `$A$1:$A$5`                   (same sheet)
-// Returns null on unresolvable formulas so the caller can skip the column.
 function resolveListFormula(
   workbook: ExcelJS.Workbook,
   formula: string,
 ): string[] | null {
   const trimmed = formula.trim().replace(/^=/, '')
 
-  // Inline list: "a,b,c" (Excel wraps each option in the same quoted string)
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     const inner = trimmed.slice(1, -1)
     return inner.split(',').map((s) => s.trim())
   }
 
-  // Range reference
   const rangeMatch = trimmed.match(
     /^(?:'([^']+)'|([A-Za-z0-9_ ]+))!(\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)$/,
   )
@@ -259,7 +493,6 @@ function resolveListFormula(
   return values
 }
 
-// "A1" → { row: 1, col: 1 }. Strips "$" absolute-reference markers.
 function parseCellRef(ref: string): { row: number; col: number } {
   const match = ref.replace(/\$/g, '').match(/^([A-Z]+)(\d+)$/)
   if (!match) return { row: 1, col: 1 }
@@ -270,8 +503,6 @@ function dedupe<T>(arr: T[]): T[] {
   return Array.from(new Set(arr))
 }
 
-// Pad or truncate so every row has exactly `width` cells. Keeps downstream
-// indexing safe when a file has ragged rows.
 function normaliseRow(row: string[], width: number): string[] {
   const trimmed = row.map((c) => (c ?? '').trim())
   if (trimmed.length === width) return trimmed

@@ -7,7 +7,7 @@
 //   - custom columns flowing into extra_fields
 
 import type { UATResult, UATColumn, UATColumnDataType } from '@/lib/types/database.types'
-import type { ColumnMapping, ColumnValidation, PreparedCase, PreparedRound } from './types'
+import type { ColumnMapping, ColumnValidation, GroupRow, PreparedCase, PreparedRound } from './types'
 
 // Metadata we track for each custom column seen during an import. `validation`
 // captures XLSX dropdown / checkbox rules so column_config can render the
@@ -25,11 +25,37 @@ export interface TransformOutput {
   customColumnsSeen: Map<string, CustomColumnMeta>
 }
 
+export interface TransformInput {
+  // Data rows (already filtered by the parser so group-header rows are NOT
+  // in here). Rows line up with `dataRowRawIndex` so we can figure out which
+  // group a data row sits under.
+  rows: string[][]
+  // For each row in `rows`, the corresponding row index in the parser's
+  // rawRows grid. Used to associate each data row with a group header.
+  dataRowRawIndex: number[]
+  // Group rows detected by the parser (raw-row indices + labels).
+  groupRows: GroupRow[]
+  mappings: ColumnMapping[]
+  startingRowNumber: number
+}
+
 export function transformRows(
-  rows: string[][],
-  mappings: ColumnMapping[],
-  startingRowNumber: number,
+  inputOrRows: TransformInput | string[][],
+  legacyMappings?: ColumnMapping[],
+  legacyStartingRowNumber?: number,
 ): TransformOutput {
+  // Backwards-compatible call shape — old callers passed (rows, mappings, start).
+  const input: TransformInput = Array.isArray(inputOrRows)
+    ? {
+        rows: inputOrRows,
+        dataRowRawIndex: inputOrRows.map((_, i) => i),
+        groupRows: [],
+        mappings: legacyMappings ?? [],
+        startingRowNumber: legacyStartingRowNumber ?? 1,
+      }
+    : inputOrRows
+
+  const { rows, dataRowRawIndex, groupRows, mappings, startingRowNumber } = input
   const active = mappings.filter((m) => !m.skip)
   const cases: PreparedCase[] = []
   const rowWarnings: string[] = []
@@ -37,12 +63,56 @@ export function transformRows(
   let skippedEmpty = 0
   let nextRowNumber = startingRowNumber
 
+  // Sort group rows by rawIndex so lookups are easy. For each data row we
+  // find the most recent group row whose rawIndex is <= the row's rawIndex.
+  const sortedGroups = [...groupRows].sort((a, b) => a.rowIndex - b.rowIndex)
+  const groupParents = new Map<string, PreparedCase>() // group label → parent
+
+  function groupFor(dataRawIndex: number): GroupRow | null {
+    let current: GroupRow | null = null
+    for (const g of sortedGroups) {
+      if (g.rowIndex <= dataRawIndex) current = g
+      else break
+    }
+    return current
+  }
+
+  function ensureGroupParent(group: GroupRow): PreparedCase {
+    // Key groups by name (lowercased) — handles the Vixxo case where the
+    // same "CHECK IN" banner is split into two merged ranges on the same
+    // row and we'd otherwise create duplicate parents.
+    const key = group.name.toLowerCase().trim()
+    const existing = groupParents.get(key)
+    if (existing) return existing
+
+    const parent: PreparedCase = {
+      rowNumber: nextRowNumber++,
+      test_label: group.name,
+      test_script: '',
+      tester_phone: '',
+      polyai_resolution_comments: '',
+      ready_to_retest: false,
+      extra_fields: {},
+      rounds: [emptyRound(1)],
+      group_name: group.name,
+      parent_key: null,
+      is_group_parent: true,
+    }
+    groupParents.set(key, parent)
+    cases.push(parent)
+    return parent
+  }
+
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r]
     if (isEmptyRow(row)) {
       skippedEmpty++
       continue
     }
+
+    const rawIdx = dataRowRawIndex[r] ?? r
+    const group = groupFor(rawIdx)
+    const parent = group ? ensureGroupParent(group) : null
 
     const caseData: PreparedCase = {
       rowNumber: nextRowNumber++,
@@ -53,6 +123,9 @@ export function transformRows(
       ready_to_retest: false,
       extra_fields: {},
       rounds: [],
+      group_name: group?.name ?? null,
+      parent_key: parent ? String(parent.rowNumber) : null,
+      is_group_parent: false,
     }
 
     const roundDrafts = new Map<number, PreparedRound>()
@@ -122,7 +195,7 @@ export function transformRows(
           case 'result': {
             const normalised = normaliseResult(raw)
             if (normalised === undefined) {
-              rowWarnings.push(`Row ${r + 2}: unrecognised result "${raw}" — left blank.`)
+              rowWarnings.push(`Row ${rawIdx + 1}: unrecognised result "${raw}" — left blank.`)
             } else {
               draft.result = normalised
             }

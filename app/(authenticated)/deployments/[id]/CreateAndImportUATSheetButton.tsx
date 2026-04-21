@@ -14,8 +14,10 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
   const [sheetName, setSheetName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
-  const [mappings, setMappings] = useState<ColumnMapping[]>([])
+  const [mappingsBySheet, setMappingsBySheet] = useState<Record<string, ColumnMapping[]>>({})
+  const [activeSheet, setActiveSheet] = useState<string | null>(null)
   const [importedCount, setImportedCount] = useState(0)
+  const [importedSheetCount, setImportedSheetCount] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -24,8 +26,10 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
     setSheetName('')
     setError(null)
     setPreview(null)
-    setMappings([])
+    setMappingsBySheet({})
+    setActiveSheet(null)
     setImportedCount(0)
+    setImportedSheetCount(0)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -53,14 +57,20 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
       return
     }
     setPreview(res.preview)
-    setMappings(res.preview.mappings)
+    const mapBySheet: Record<string, ColumnMapping[]> = {}
+    for (const s of res.preview.sheets) mapBySheet[s.sheetName] = s.mappings
+    setMappingsBySheet(mapBySheet)
+    setActiveSheet(res.preview.sheets[0]?.sheetName ?? null)
     setPhase('preview')
   }
 
-  function toggleSkip(index: number) {
-    setMappings((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, skip: !m.skip } : m)),
-    )
+  function toggleSkip(sheetName: string, index: number) {
+    setMappingsBySheet((prev) => ({
+      ...prev,
+      [sheetName]: (prev[sheetName] ?? []).map((m, i) =>
+        i === index ? { ...m, skip: !m.skip } : m,
+      ),
+    }))
   }
 
   async function handleConfirm() {
@@ -68,7 +78,9 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
     setError(null)
     setPhase('creating')
 
-    // Step 1: create the sheet
+    // Step 1: create the primary sheet with the user's chosen name. Tab 1
+    // of the import will populate it. Additional tabs create their own
+    // sibling sheets automatically in confirmImport.
     const createRes = await createEmptyUATSheet(deploymentId, sheetName.trim())
     if ('error' in createRes) {
       setError(createRes.error)
@@ -76,33 +88,39 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
       return
     }
 
-    // Step 2: import into the fresh sheet
     setPhase('importing')
     const importRes = await confirmImport({
       uatSheetId: createRes.id,
       payloadB64: preview.payloadB64,
       payloadKind: preview.payloadKind,
-      mappings,
+      sheets: preview.sheets.map((s) => ({
+        sheetName: s.sheetName,
+        mappings: mappingsBySheet[s.sheetName] ?? s.mappings,
+      })),
     })
 
     if (!importRes.success) {
-      // Sheet was created but import failed — still send the user to it so
-      // they can retry from the detail page rather than silently orphaning.
       setError(`Sheet created but import failed: ${importRes.error}`)
       setImportedCount(0)
       router.push(`/uat-sheets/${createRes.id}`)
       return
     }
 
-    setImportedCount(importRes.result.inserted)
+    setImportedCount(importRes.result.totalInserted)
+    setImportedSheetCount(importRes.result.sheets.length)
     setPhase('done')
-    // Auto-navigate after a brief confirmation
     setTimeout(() => {
       router.push(`/uat-sheets/${createRes.id}`)
-    }, 1200)
+    }, 1500)
   }
 
-  const activeMappingCount = mappings.filter((m) => !m.skip).length
+  const activeSheetPreview = preview?.sheets.find((s) => s.sheetName === activeSheet)
+  const activeMappings = activeSheet ? mappingsBySheet[activeSheet] ?? [] : []
+  const totalActiveMappings = Object.values(mappingsBySheet).reduce(
+    (sum, arr) => sum + arr.filter((m) => !m.skip).length,
+    0,
+  )
+  const totalRows = preview?.sheets.reduce((sum, s) => sum + s.totalRows, 0) ?? 0
 
   return (
     <>
@@ -113,12 +131,12 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
         </svg>
-        Import from CSV/XLSX
+        Import from XLSX
       </button>
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 py-10">
-          <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl">
+          <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-brand-dark">Create Sheet from Import</h2>
               <button onClick={close} className="text-gray-400 hover:text-gray-600">
@@ -149,6 +167,9 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                     className="input-field"
                     placeholder="e.g., Phase 1 UAT"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    For multi-tab files, the first tab goes in this sheet; additional tabs create siblings named &ldquo;{sheetName.trim() || 'Name'} — TabName&rdquo;.
+                  </p>
                 </div>
 
                 <label
@@ -160,18 +181,18 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <span className="text-sm font-medium text-brand-dark">Click to choose a file</span>
-                  <span className="mt-1 text-xs text-gray-500">.csv or .xlsx, up to 5 MB</span>
+                  <span className="mt-1 text-xs text-gray-500">.xlsx, up to 5 MB</span>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     className="hidden"
                     onChange={handleFilePicked}
                     disabled={!sheetName.trim()}
                   />
                 </label>
                 <p className="text-xs text-gray-500">
-                  We&apos;ll create a new sheet and use AI to match your file&apos;s columns to the UAT schema.
+                  We&apos;ll parse the file, detect section headers + repeated round columns, and use AI to match columns to the UAT schema.
                 </p>
               </div>
             )}
@@ -190,17 +211,56 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
               </div>
             )}
 
-            {phase === 'preview' && preview && (
+            {phase === 'preview' && preview && activeSheetPreview && (
               <div>
                 <div className="mb-4 rounded-lg bg-gray-50 p-3">
                   <p className="text-sm text-gray-700">
                     <span className="font-semibold">{preview.fileName}</span>
                     {' · '}
-                    {preview.totalRows} row{preview.totalRows === 1 ? '' : 's'}
+                    {preview.sheets.length} tab{preview.sheets.length === 1 ? '' : 's'}
                     {' · '}
-                    {activeMappingCount} of {mappings.length} columns will be imported
+                    {totalRows} data row{totalRows === 1 ? '' : 's'}
+                    {' · '}
+                    {totalActiveMappings} column{totalActiveMappings === 1 ? '' : 's'} to import
                   </p>
+                  {preview.sheets.length > 1 && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      Tab 1 → &ldquo;{sheetName.trim()}&rdquo;. Tabs 2+ → new siblings named &ldquo;{sheetName.trim()} — TabName&rdquo;.
+                    </p>
+                  )}
                 </div>
+
+                {preview.sheets.length > 1 && (
+                  <div className="mb-4 flex gap-1 border-b border-gray-200 overflow-x-auto">
+                    {preview.sheets.map((s, idx) => (
+                      <button
+                        key={s.sheetName}
+                        onClick={() => setActiveSheet(s.sheetName)}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                          activeSheet === s.sheetName
+                            ? 'border-brand-purple text-brand-purple'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {s.sheetName}
+                        <span className="ml-2 text-xs text-gray-400">
+                          {s.totalRows} row{s.totalRows === 1 ? '' : 's'}
+                        </span>
+                        <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${idx === 0 ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                          {idx === 0 ? 'primary' : 'new sheet'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {activeSheetPreview.warnings.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    {activeSheetPreview.warnings.map((w, i) => (
+                      <p key={i} className="text-sm text-amber-800">{w}</p>
+                    ))}
+                  </div>
+                )}
 
                 {preview.warnings.length > 0 && (
                   <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -222,7 +282,7 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {mappings.map((m, i) => (
+                      {activeMappings.map((m, i) => (
                         <tr key={i} className={m.skip ? 'bg-gray-50 text-gray-400' : ''}>
                           <td className="px-3 py-2 font-medium">{m.sourceHeader || <em className="text-gray-400">(blank)</em>}</td>
                           <td className="px-3 py-2">
@@ -244,10 +304,20 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                                 Low confidence
                               </span>
                             )}
+                            {m.validation?.dataType === 'list' && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700" title={m.validation.options?.join(', ')}>
+                                Dropdown ({m.validation.options?.length ?? 0})
+                              </span>
+                            )}
+                            {m.validation?.dataType === 'boolean' && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                                Checkbox
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button
-                              onClick={() => toggleSkip(i)}
+                              onClick={() => toggleSkip(activeSheetPreview.sheetName, i)}
                               className="text-xs font-medium text-brand-purple hover:underline"
                             >
                               {m.skip ? 'Include' : 'Skip'}
@@ -263,10 +333,11 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                   <button onClick={close} className="btn-outline flex-1">Cancel</button>
                   <button
                     onClick={handleConfirm}
-                    disabled={activeMappingCount === 0}
+                    disabled={totalActiveMappings === 0}
                     className="btn-primary flex-1 disabled:opacity-50"
                   >
-                    Create &amp; import {preview.totalRows} row{preview.totalRows === 1 ? '' : 's'}
+                    Create &amp; import {totalRows} row{totalRows === 1 ? '' : 's'}
+                    {preview.sheets.length > 1 ? ` into ${preview.sheets.length} sheets` : ''}
                   </button>
                 </div>
               </div>
@@ -280,7 +351,7 @@ export default function CreateAndImportUATSheetButton({ deploymentId }: { deploy
                   </svg>
                 </div>
                 <p className="mt-4 text-sm font-semibold text-brand-dark">
-                  Created &ldquo;{sheetName}&rdquo; with {importedCount} test case{importedCount === 1 ? '' : 's'}
+                  Imported {importedCount} test case{importedCount === 1 ? '' : 's'} into {importedSheetCount} sheet{importedSheetCount === 1 ? '' : 's'}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">Opening sheet...</p>
               </div>

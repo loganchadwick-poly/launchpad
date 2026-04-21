@@ -3,22 +3,26 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requireAuth } from '@/lib/auth/getUser'
-import { parseBuffer } from '@/lib/uat-import/parser'
+import { parseBuffer, type ParsedSheet } from '@/lib/uat-import/parser'
 import { mapHeadersWithAI } from '@/lib/uat-import/anthropic-mapper'
 import { transformRows, mergeColumnConfig } from '@/lib/uat-import/transform'
+import { createEmptyUATSheet } from './uat'
 import type {
   ColumnMapping,
   ImportPreview,
   ImportResult,
+  PreparedCase,
+  SheetPreview,
 } from '@/lib/uat-import/types'
 import type { UATColumn } from '@/lib/types/database.types'
 
 // =====================================================
 // Step 1: previewImport
 // =====================================================
-// Parses the uploaded file, runs AI header mapping, returns a preview
-// payload the client can show to the user. Also returns the raw file
-// base64-encoded so confirmImport doesn't need a second upload.
+// Parses the uploaded file (every worksheet for XLSX, single sheet for CSV),
+// runs AI header mapping per sheet, and returns a per-sheet preview payload.
+// The raw file is base64-encoded into the payload so confirmImport doesn't
+// have to re-upload.
 export async function previewImport(formData: FormData): Promise<
   | { success: true; preview: ImportPreview }
   | { success: false; error: string }
@@ -39,40 +43,70 @@ export async function previewImport(formData: FormData): Promise<
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const parsed = await parseBuffer(buffer, kind)
-    if (parsed.headers.length === 0) {
-      return { success: false, error: 'Could not find a header row in the file.' }
-    }
-    if (parsed.rows.length === 0) {
-      return { success: false, error: 'File has a header row but no data rows.' }
+    const workbook = await parseBuffer(buffer, kind, file.name)
+
+    // Drop sheets that have no usable data; warn if we dropped any.
+    const topWarnings: string[] = []
+    const usableSheets = workbook.sheets.filter((s) => {
+      if (s.headers.length === 0 || s.rows.length === 0) {
+        topWarnings.push(`Skipped sheet "${s.name}" — no usable header or data rows.`)
+        return false
+      }
+      return true
+    })
+    if (usableSheets.length === 0) {
+      return {
+        success: false,
+        error:
+          workbook.sheets.length === 0
+            ? 'No worksheets found in the file.'
+            : 'No worksheets have both a header row and data rows.',
+      }
     }
 
-    const sampleRows = parsed.rows.slice(0, 5)
-    const mappings = await mapHeadersWithAI(
-      parsed.headers,
-      sampleRows,
-      parsed.validations,
-    )
+    const sheetPreviews: SheetPreview[] = []
+    for (const s of usableSheets) {
+      const sampleRows = s.rows.slice(0, 5)
+      const mappings = await mapHeadersWithAI(s.headers, sampleRows, s.validations)
 
-    const warnings: string[] = []
-    const lowConfidence = mappings.filter((m) => m.confidence === 'low' && !m.skip)
-    if (lowConfidence.length > 0) {
-      warnings.push(
-        `${lowConfidence.length} column${lowConfidence.length === 1 ? '' : 's'} mapped with low confidence — review before importing.`,
-      )
+      const perSheetWarnings: string[] = []
+      const lowConfidence = mappings.filter((m) => m.confidence === 'low' && !m.skip)
+      if (lowConfidence.length > 0) {
+        perSheetWarnings.push(
+          `${lowConfidence.length} column${lowConfidence.length === 1 ? '' : 's'} mapped with low confidence — review before importing.`,
+        )
+      }
+      if (s.groupRows.length > 0) {
+        perSheetWarnings.push(
+          `Detected ${s.groupRows.length} section header${s.groupRows.length === 1 ? '' : 's'} (${s.groupRows.map((g) => `"${g.name}"`).join(', ')}) — rows will be grouped under these.`,
+        )
+      }
+      if (s.headerRowIndex > 0) {
+        perSheetWarnings.push(
+          `Header row detected on row ${s.headerRowIndex + 1}; rows above were ignored.`,
+        )
+      }
+
+      sheetPreviews.push({
+        sheetName: s.name,
+        headers: s.headers,
+        mappings,
+        totalRows: s.rows.length,
+        sampleRows,
+        groupRows: s.groupRows,
+        groupRowCount: s.groupRows.length,
+        warnings: perSheetWarnings,
+      })
     }
 
     return {
       success: true,
       preview: {
-        headers: parsed.headers,
-        mappings,
-        totalRows: parsed.rows.length,
-        sampleRows,
+        sheets: sheetPreviews,
         fileName: file.name,
         payloadB64: buffer.toString('base64'),
         payloadKind: kind,
-        warnings,
+        warnings: topWarnings,
       },
     }
   } catch (err) {
@@ -87,14 +121,18 @@ export async function previewImport(formData: FormData): Promise<
 // =====================================================
 // Step 2: confirmImport
 // =====================================================
-// Re-parses the file from the base64 payload, applies the (possibly
-// user-edited) mappings, dedupes against existing cases, bulk-inserts
-// cases + rounds, and updates the sheet's column_config.
+// For each sheet in the payload the user confirmed, decide where the data
+// lands:
+//   - First sheet → populates the UAT sheet the user was on when they clicked
+//     Import (reuses the current page so the UX feels natural).
+//   - Subsequent sheets → create new sibling UAT sheets on the same deployment,
+//     one per tab, named after the source tab.
+// Then insert cases + rounds, linking group parent/child rows as we go.
 export async function confirmImport(input: {
-  uatSheetId: string
+  uatSheetId: string // the sheet the user is currently on
   payloadB64: string
   payloadKind: 'csv' | 'xlsx'
-  mappings: ColumnMapping[]
+  sheets: Array<{ sheetName: string; mappings: ColumnMapping[] }>
 }): Promise<
   | { success: true; result: ImportResult }
   | { success: false; error: string }
@@ -103,148 +141,98 @@ export async function confirmImport(input: {
     await requireAuth()
     const supabase = await createClient()
 
-    // Load sheet + existing column_config + existing cases for dedupe.
-    const { data: sheet, error: sheetErr } = await supabase
+    // Figure out the deployment for the current sheet so we can create
+    // siblings under the same deployment for tabs 2+.
+    const { data: currentSheet, error: currentErr } = await supabase
       .from('uat_sheets')
-      .select('id, column_config')
+      .select('id, name, deployment_id, column_config')
       .eq('id', input.uatSheetId)
       .single()
-    if (sheetErr || !sheet) {
+    if (currentErr || !currentSheet) {
       return { success: false, error: 'UAT sheet not found.' }
     }
 
-    const { data: existing, error: existingErr } = await supabase
-      .from('uat_test_cases')
-      .select('row_number, test_label, test_script, extra_fields')
-      .eq('uat_sheet_id', input.uatSheetId)
-    if (existingErr) {
-      return { success: false, error: existingErr.message }
-    }
-
-    const existingKeys = new Set(
-      (existing ?? []).map((c) => dedupeKey(c.test_label, c.test_script)),
-    )
-    const maxRow = (existing ?? []).reduce(
-      (m, c) => Math.max(m, c.row_number ?? 0),
-      0,
-    )
-
-    // Re-parse from payload.
+    // Re-parse the workbook so we have fresh row data + group info.
     const buffer = Buffer.from(input.payloadB64, 'base64')
-    const parsed = await parseBuffer(buffer, input.payloadKind)
+    const workbook = await parseBuffer(buffer, input.payloadKind)
 
-    const {
-      cases,
-      skippedEmpty,
-      rowWarnings,
-      customColumnsSeen,
-    } = transformRows(parsed.rows, input.mappings, maxRow + 1)
+    // Build a quick lookup by sheetName so the user-confirmed mappings pair
+    // up with the right parsed sheet (order-independent, robust to UI reorder).
+    const parsedBySheetName = new Map<string, ParsedSheet>()
+    for (const s of workbook.sheets) parsedBySheetName.set(s.name, s)
 
-    // Skip exact duplicates only (same test_label + test_script).
-    const deduped = cases.filter(
-      (c) => !existingKeys.has(dedupeKey(c.test_label, c.test_script)),
-    )
-    const skippedDuplicates = cases.length - deduped.length
+    const sheetResults: ImportResult['sheets'] = []
+    const topWarnings: string[] = []
 
-    if (deduped.length === 0) {
-      return {
-        success: true,
-        result: {
-          inserted: 0,
-          skippedEmpty,
-          skippedDuplicates,
-          warnings: ['No new rows to insert (all were empty or duplicates).'],
-          newColumnConfig: sheet.column_config as UATColumn[],
-        },
+    for (let sheetIdx = 0; sheetIdx < input.sheets.length; sheetIdx++) {
+      const userSheet = input.sheets[sheetIdx]
+      const parsed = parsedBySheetName.get(userSheet.sheetName)
+      if (!parsed) {
+        topWarnings.push(`Sheet "${userSheet.sheetName}" not found in the uploaded file — skipped.`)
+        continue
       }
-    }
 
-    // Insert cases first to get IDs, then rounds in a second pass.
-    const casesToInsert = deduped.map((c) => ({
-      uat_sheet_id: input.uatSheetId,
-      row_number: c.rowNumber,
-      test_label: c.test_label,
-      test_script: c.test_script,
-      tester_phone: c.tester_phone,
-      polyai_resolution_comments: c.polyai_resolution_comments,
-      ready_to_retest: c.ready_to_retest,
-      extra_fields: c.extra_fields,
-    }))
+      // Target UAT sheet: first sheet reuses current; subsequent sheets get
+      // a freshly-created empty sibling.
+      let targetId: string
+      let targetName: string
+      let targetColumnConfig: UATColumn[]
+      let isNew = false
 
-    const { data: insertedCases, error: insertErr } = await supabase
-      .from('uat_test_cases')
-      .insert(casesToInsert)
-      .select('id, row_number')
-
-    if (insertErr || !insertedCases) {
-      return {
-        success: false,
-        error: insertErr?.message ?? 'Insert failed.',
+      if (sheetIdx === 0) {
+        targetId = currentSheet.id
+        targetName = currentSheet.name
+        targetColumnConfig = (currentSheet.column_config as UATColumn[]) ?? []
+      } else {
+        const created = await createEmptyUATSheet(
+          currentSheet.deployment_id,
+          uniqueSheetName(currentSheet.name, userSheet.sheetName),
+        )
+        if ('error' in created) {
+          topWarnings.push(`Could not create a new UAT sheet for "${userSheet.sheetName}": ${created.error}`)
+          continue
+        }
+        targetId = created.id
+        targetName = uniqueSheetName(currentSheet.name, userSheet.sheetName)
+        targetColumnConfig = []
+        isNew = true
       }
-    }
 
-    // Match inserted rows back to prepared cases by row_number (unique per sheet).
-    const idByRow = new Map<number, string>()
-    for (const c of insertedCases) idByRow.set(c.row_number, c.id)
-
-    const roundsToInsert = deduped.flatMap((c) => {
-      const caseId = idByRow.get(c.rowNumber)
-      if (!caseId) return []
-      return c.rounds.map((r) => ({
-        test_case_id: caseId,
-        round_number: r.round_number,
-        tester_name: r.tester_name,
-        call_link: r.call_link,
-        result: r.result,
-        comments: r.comments,
-        extra_fields: r.extra_fields,
-      }))
-    })
-
-    if (roundsToInsert.length > 0) {
-      const { error: roundsErr } = await supabase
-        .from('uat_test_rounds')
-        .insert(roundsToInsert)
-      if (roundsErr) {
-        return { success: false, error: `Rounds insert failed: ${roundsErr.message}` }
+      const result = await importOneSheet({
+        parsed,
+        mappings: userSheet.mappings,
+        targetUatSheetId: targetId,
+        targetColumnConfig,
+      })
+      if ('error' in result) {
+        topWarnings.push(`Sheet "${userSheet.sheetName}" failed: ${result.error}`)
+        continue
       }
-    }
 
-    // Update column_config. Merge incoming custom columns with existing,
-    // then (per Logan's requirement) drop custom columns that have no data
-    // anywhere in the sheet.
-    const merged = mergeColumnConfig(
-      sheet.column_config as UATColumn[],
-      customColumnsSeen,
-    )
-    const final = await pruneEmptyCustomColumns(
-      supabase,
-      input.uatSheetId,
-      merged,
-    )
-
-    const { error: cfgErr } = await supabase
-      .from('uat_sheets')
-      .update({ column_config: final })
-      .eq('id', input.uatSheetId)
-    if (cfgErr) {
-      return { success: false, error: `Column config update failed: ${cfgErr.message}` }
+      sheetResults.push({
+        sheetName: userSheet.sheetName,
+        uatSheetId: targetId,
+        uatSheetName: targetName,
+        isNew,
+        inserted: result.inserted,
+        skippedEmpty: result.skippedEmpty,
+        skippedDuplicates: result.skippedDuplicates,
+        warnings: result.warnings,
+        newColumnConfig: result.newColumnConfig,
+      })
     }
 
     revalidatePath(`/uat-sheets/${input.uatSheetId}`)
-
-    const warnings = [...rowWarnings]
-    if (skippedEmpty > 0) warnings.unshift(`Skipped ${skippedEmpty} empty row${skippedEmpty === 1 ? '' : 's'}.`)
-    if (skippedDuplicates > 0) warnings.unshift(`Skipped ${skippedDuplicates} duplicate row${skippedDuplicates === 1 ? '' : 's'}.`)
+    if (currentSheet.deployment_id) {
+      revalidatePath(`/deployments/${currentSheet.deployment_id}`)
+    }
 
     return {
       success: true,
       result: {
-        inserted: insertedCases.length,
-        skippedEmpty,
-        skippedDuplicates,
-        warnings,
-        newColumnConfig: final,
+        sheets: sheetResults,
+        totalInserted: sheetResults.reduce((sum, s) => sum + s.inserted, 0),
+        warnings: topWarnings,
       },
     }
   } catch (err) {
@@ -257,9 +245,184 @@ export async function confirmImport(input: {
 }
 
 // =====================================================
+// Per-sheet insert pipeline
+// =====================================================
+async function importOneSheet(opts: {
+  parsed: ParsedSheet
+  mappings: ColumnMapping[]
+  targetUatSheetId: string
+  targetColumnConfig: UATColumn[]
+}): Promise<
+  | {
+      inserted: number
+      skippedEmpty: number
+      skippedDuplicates: number
+      warnings: string[]
+      newColumnConfig: UATColumn[]
+    }
+  | { error: string }
+> {
+  const supabase = await createClient()
+
+  // Pull existing cases for dedupe. New UAT sheets are always empty, but
+  // re-using the current sheet can have prior rows.
+  const { data: existing, error: existingErr } = await supabase
+    .from('uat_test_cases')
+    .select('row_number, test_label, test_script, extra_fields')
+    .eq('uat_sheet_id', opts.targetUatSheetId)
+  if (existingErr) return { error: existingErr.message }
+
+  const existingKeys = new Set(
+    (existing ?? []).map((c) => dedupeKey(c.test_label, c.test_script)),
+  )
+  const maxRow = (existing ?? []).reduce(
+    (m, c) => Math.max(m, c.row_number ?? 0),
+    0,
+  )
+
+  // Compute data-row → rawRow mapping so transform can associate each data
+  // row with the group row (banner) sitting above it.
+  const groupRowSet = new Set(opts.parsed.groupRows.map((g) => g.rowIndex))
+  const dataRowRawIndex: number[] = []
+  for (let i = opts.parsed.headerRowIndex + 1; i < opts.parsed.rawRows.length; i++) {
+    if (groupRowSet.has(i)) continue
+    const row = opts.parsed.rawRows[i]
+    if (row.every((c) => c.trim() === '')) continue
+    dataRowRawIndex.push(i)
+  }
+
+  const { cases, skippedEmpty, rowWarnings, customColumnsSeen } = transformRows({
+    rows: opts.parsed.rows,
+    dataRowRawIndex,
+    groupRows: opts.parsed.groupRows,
+    mappings: opts.mappings,
+    startingRowNumber: maxRow + 1,
+  })
+
+  // Split into parents (group headers) and children so we can insert parents
+  // first, then link children via parent_row_id.
+  const parents = cases.filter((c) => c.is_group_parent)
+  const children = cases.filter((c) => !c.is_group_parent)
+
+  // Dedupe children against existing rows (parents we always insert — they're
+  // cheap and the current sheet dedupe key wouldn't find a group banner).
+  const dedupedChildren = children.filter(
+    (c) => !existingKeys.has(dedupeKey(c.test_label, c.test_script)),
+  )
+  const skippedDuplicates = children.length - dedupedChildren.length
+
+  if (parents.length === 0 && dedupedChildren.length === 0) {
+    return {
+      inserted: 0,
+      skippedEmpty,
+      skippedDuplicates,
+      warnings: ['No new rows to insert (all were empty or duplicates).'],
+      newColumnConfig: opts.targetColumnConfig,
+    }
+  }
+
+  // ------------------ Insert parents first ------------------
+  const parentIdByKey = new Map<string, string>() // rowNumber → UUID
+  if (parents.length > 0) {
+    const parentInsertRows = parents.map((p) => ({
+      uat_sheet_id: opts.targetUatSheetId,
+      row_number: p.rowNumber,
+      test_label: p.test_label,
+      test_script: p.test_script,
+      tester_phone: p.tester_phone,
+      polyai_resolution_comments: p.polyai_resolution_comments,
+      ready_to_retest: p.ready_to_retest,
+      extra_fields: p.extra_fields,
+      group_name: p.group_name,
+      group_order: 0,
+    }))
+    const { data: insertedParents, error: pErr } = await supabase
+      .from('uat_test_cases')
+      .insert(parentInsertRows)
+      .select('id, row_number')
+    if (pErr || !insertedParents) {
+      return { error: pErr?.message ?? 'Parent insert failed.' }
+    }
+    for (const p of insertedParents) {
+      parentIdByKey.set(String(p.row_number), p.id)
+    }
+  }
+
+  // ------------------ Insert children ------------------
+  const insertedCaseIdByRow = new Map<number, string>()
+  if (dedupedChildren.length > 0) {
+    const childRows = dedupedChildren.map((c) => ({
+      uat_sheet_id: opts.targetUatSheetId,
+      row_number: c.rowNumber,
+      test_label: c.test_label,
+      test_script: c.test_script,
+      tester_phone: c.tester_phone,
+      polyai_resolution_comments: c.polyai_resolution_comments,
+      ready_to_retest: c.ready_to_retest,
+      extra_fields: c.extra_fields,
+      group_name: c.group_name,
+      parent_row_id: c.parent_key ? parentIdByKey.get(c.parent_key) ?? null : null,
+      group_order: 0,
+    }))
+    const { data: insertedChildren, error: cErr } = await supabase
+      .from('uat_test_cases')
+      .insert(childRows)
+      .select('id, row_number')
+    if (cErr || !insertedChildren) {
+      return { error: cErr?.message ?? 'Child insert failed.' }
+    }
+    for (const c of insertedChildren) insertedCaseIdByRow.set(c.row_number, c.id)
+  }
+
+  // ------------------ Insert rounds ------------------
+  // Only for children — parent group rows get the default empty round 1
+  // from transform but we skip rounds at insert time (the UI doesn't render
+  // results on parents).
+  const roundsToInsert = dedupedChildren.flatMap((c) => {
+    const caseId = insertedCaseIdByRow.get(c.rowNumber)
+    if (!caseId) return []
+    return c.rounds.map((r) => ({
+      test_case_id: caseId,
+      round_number: r.round_number,
+      tester_name: r.tester_name,
+      call_link: r.call_link,
+      result: r.result,
+      comments: r.comments,
+      extra_fields: r.extra_fields,
+    }))
+  })
+  if (roundsToInsert.length > 0) {
+    const { error: rErr } = await supabase
+      .from('uat_test_rounds')
+      .insert(roundsToInsert)
+    if (rErr) return { error: `Rounds insert failed: ${rErr.message}` }
+  }
+
+  // ------------------ Column config ------------------
+  const merged = mergeColumnConfig(opts.targetColumnConfig, customColumnsSeen)
+  const final = await pruneEmptyCustomColumns(supabase, opts.targetUatSheetId, merged)
+  const { error: cfgErr } = await supabase
+    .from('uat_sheets')
+    .update({ column_config: final })
+    .eq('id', opts.targetUatSheetId)
+  if (cfgErr) return { error: `Column config update failed: ${cfgErr.message}` }
+
+  const warnings = [...rowWarnings]
+  if (skippedEmpty > 0) warnings.unshift(`Skipped ${skippedEmpty} empty row${skippedEmpty === 1 ? '' : 's'}.`)
+  if (skippedDuplicates > 0) warnings.unshift(`Skipped ${skippedDuplicates} duplicate row${skippedDuplicates === 1 ? '' : 's'}.`)
+
+  return {
+    inserted: parents.length + dedupedChildren.length,
+    skippedEmpty,
+    skippedDuplicates,
+    warnings,
+    newColumnConfig: final,
+  }
+}
+
+// =====================================================
 // Helpers
 // =====================================================
-
 function detectKind(name: string, mime: string): 'csv' | 'xlsx' | null {
   const lower = name.toLowerCase()
   if (lower.endsWith('.csv') || mime === 'text/csv') return 'csv'
@@ -276,11 +439,17 @@ function dedupeKey(label: string, script: string): string {
   return `${(label ?? '').trim().toLowerCase()}|${(script ?? '').trim().toLowerCase()}`
 }
 
-// After insert, scan all cases + rounds for which custom keys actually have
-// any non-empty value. Drop custom columns from column_config that have no
-// data anywhere — this covers Logan's "if the uploaded sheet has no API Data
-// column, the column should be removed" case, without wiping columns that
-// have real data in cases not touched by this import.
+// When creating a sibling UAT sheet for tabs 2+, give it a descriptive name
+// derived from the source sheet's name and the worksheet's tab name, e.g.
+// "Vixxo UAT — Outbound".
+function uniqueSheetName(baseName: string, tabName: string): string {
+  const cleanTab = tabName.trim()
+  if (!cleanTab) return baseName
+  // Avoid doubling up if the user's current sheet is literally the tab name
+  if (baseName.trim().toLowerCase() === cleanTab.toLowerCase()) return baseName
+  return `${baseName} — ${cleanTab}`
+}
+
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
 async function pruneEmptyCustomColumns(
@@ -317,3 +486,6 @@ async function pruneEmptyCustomColumns(
 
   return config.filter((c) => c.kind === 'core' || keysWithData.has(c.key))
 }
+
+// Satisfy the unused import lint when we do fallbacks without using PreparedCase.
+void ({} as PreparedCase)

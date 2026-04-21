@@ -9,6 +9,14 @@ export interface ColumnValidation {
   options?: string[] // only when dataType === 'list'
 }
 
+// A "section header" row (e.g. "CHECK IN" merged across most of the row).
+// rowIndex is into the sheet's rawRows grid — the parser tells us which
+// data rows follow each group header.
+export interface GroupRow {
+  rowIndex: number
+  name: string
+}
+
 // A single mapped column from the source file to the target schema.
 export interface ColumnMapping {
   sourceHeader: string // Raw header text from the file
@@ -26,12 +34,22 @@ export interface ColumnMapping {
   validation?: ColumnValidation
 }
 
-// Output of the parse+map step. Sent back to the client for preview.
-export interface ImportPreview {
+// Preview for a single worksheet within the uploaded file.
+export interface SheetPreview {
+  sheetName: string
   headers: string[]
   mappings: ColumnMapping[]
   totalRows: number
   sampleRows: string[][] // First ~5 rows, cell values as strings
+  groupRows: GroupRow[] // Section headers detected in this sheet (info only in preview)
+  groupRowCount: number
+  warnings: string[]
+}
+
+// Output of the parse+map step for the whole workbook. The UI shows one tab
+// per sheet and lets the user edit each sheet's mappings independently.
+export interface ImportPreview {
+  sheets: SheetPreview[]
   fileName: string
   // Base64-encoded source buffer. Passed back on confirm so we don't have to
   // re-upload the file. Small UAT sheets are rarely over a few hundred KB.
@@ -50,6 +68,14 @@ export interface PreparedCase {
   ready_to_retest: boolean
   extra_fields: Record<string, string>
   rounds: PreparedRound[]
+  // Grouping: when a row sits under a "CHECK IN" merged banner, group_name
+  // is set and the row is treated as a child of a synthetic parent case.
+  // parentKey is a stable identifier for the parent so the DB insert layer
+  // can link children to parents via parent_row_id after the parents get
+  // their real UUIDs.
+  group_name: string | null
+  parent_key: string | null // non-null on children; null on parents and ungrouped rows
+  is_group_parent: boolean // true only for the synthetic parent row
 }
 
 export interface PreparedRound {
@@ -62,9 +88,19 @@ export interface PreparedRound {
 }
 
 export interface ImportResult {
-  inserted: number
-  skippedEmpty: number
-  skippedDuplicates: number
+  // Per-sheet result. The first entry is the sheet the user was on when they
+  // clicked Import; the rest are newly-created sibling UAT sheets.
+  sheets: Array<{
+    sheetName: string // name of the source worksheet
+    uatSheetId: string // UAT sheet id (existing or newly created)
+    uatSheetName: string // UAT sheet name as stored in the DB
+    isNew: boolean // true if we created this UAT sheet for the import
+    inserted: number
+    skippedEmpty: number
+    skippedDuplicates: number
+    warnings: string[]
+    newColumnConfig: UATColumn[]
+  }>
+  totalInserted: number
   warnings: string[]
-  newColumnConfig: UATColumn[]
 }
