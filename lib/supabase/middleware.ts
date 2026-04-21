@@ -2,8 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-  // Skip Supabase session refresh when auth is bypassed
-  if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
+  // Skip Supabase session refresh when auth is bypassed.
+  // Trim in case Vercel stored the value with a trailing newline.
+  if (
+    process.env.NEXT_PUBLIC_BYPASS_AUTH?.trim() === 'true' ||
+    process.env.BYPASS_AUTH?.trim() === 'true'
+  ) {
     return NextResponse.next({ request })
   }
 

@@ -115,8 +115,8 @@ export function Sidebar({ user, pendingTicketCount, signOutAction }: SidebarProp
 
       {/* Bottom section */}
       <div className="border-t border-white/[0.08] px-4 py-4">
-        {process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true' &&
-          process.env.NEXT_PUBLIC_HIDE_DEV_BADGE !== 'true' && (
+        {process.env.NEXT_PUBLIC_BYPASS_AUTH?.trim() === 'true' &&
+          process.env.NEXT_PUBLIC_HIDE_DEV_BADGE?.trim() !== 'true' && (
             <div className="mb-3 rounded-md bg-amber-500/20 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 text-center">
               Auth Bypassed (Dev Mode)
             </div>

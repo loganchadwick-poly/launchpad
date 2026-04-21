@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getUser } from '@/lib/auth/getUser'
 
 export default async function Home() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Route through getUser() so NEXT_PUBLIC_BYPASS_AUTH / BYPASS_AUTH are honored.
+  const user = await getUser()
 
   if (user) {
     redirect('/dashboard')

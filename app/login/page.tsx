@@ -15,12 +15,12 @@ export default function LoginPage() {
   // Must be in useEffect — calling router.push during render crashes SSR
   // (accesses window.location) and breaks Link prefetch for every page.
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
+    if (process.env.NEXT_PUBLIC_BYPASS_AUTH?.trim() === 'true') {
       router.replace('/dashboard')
     }
   }, [router])
 
-  if (process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true') {
+  if (process.env.NEXT_PUBLIC_BYPASS_AUTH?.trim() === 'true') {
     return null
   }
 

@@ -16,7 +16,11 @@ const MOCK_USER: User = {
 export function isAuthBypassed(): boolean {
   // NEXT_PUBLIC_ is inlined at build time for client code.
   // BYPASS_AUTH is read at runtime for server components/actions.
-  return process.env.NEXT_PUBLIC_BYPASS_AUTH === 'true' || process.env.BYPASS_AUTH === 'true'
+  // Trim in case Vercel stored the value with a trailing newline.
+  return (
+    process.env.NEXT_PUBLIC_BYPASS_AUTH?.trim() === 'true' ||
+    process.env.BYPASS_AUTH?.trim() === 'true'
+  )
 }
 
 export async function getUser(): Promise<User | null> {
