@@ -3,9 +3,16 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { updateTestCase, updateTestRound, createNewRound, deleteTestCase } from '@/app/actions/uat-test-cases'
+import {
+  updateTestCase,
+  updateTestRound,
+  createNewRound,
+  deleteTestCase,
+  updateTestCaseExtraField,
+  updateTestRoundExtraField,
+} from '@/app/actions/uat-test-cases'
 import { ungroupUATRow } from '@/app/actions/grouping'
-import type { UATTestCase, UATTestRound } from '@/lib/types/database.types'
+import type { UATColumn, UATTestCase, UATTestRound } from '@/lib/types/database.types'
 
 const resultOptions = [
   { value: '', label: '-', color: 'bg-gray-50 text-gray-400' },
@@ -28,6 +35,10 @@ interface Props {
   showGroupCell?: boolean
   groupCellContent?: React.ReactNode
   groupRowSpan?: number
+  // Custom columns defined on the sheet (from column_config). Rendered
+  // between "Resolution Notes" and "Ticket". Order matters — the parent
+  // already sorts by `order` so we iterate as given.
+  customColumns?: UATColumn[]
 }
 
 // Editable cell component for text inputs
@@ -170,15 +181,103 @@ function ResultDropdown({
   )
 }
 
-export default function DraggableTestCaseRow({ 
-  testCase, 
-  uatSheetId, 
-  isChild, 
+// Renders a single custom-column cell. Picks the editor based on
+// column.dataType:
+//   - 'list'    → <select> with column.options
+//   - 'boolean' → <input type="checkbox"> storing "true"/"false" strings
+//   - 'text'    → reuses the existing <EditableCell>
+function CustomFieldCell({
+  value,
+  column,
+  onSave,
+  disabled = false,
+}: {
+  value: string
+  column: UATColumn
+  onSave: (next: string) => Promise<void>
+  disabled?: boolean
+}) {
+  const [saving, setSaving] = useState(false)
+
+  async function save(next: string) {
+    if (next === value) return
+    setSaving(true)
+    await onSave(next)
+    setSaving(false)
+  }
+
+  if (disabled) {
+    return (
+      <div className="rounded px-2 py-1 text-sm bg-gray-100 text-gray-300 min-h-[28px] cursor-not-allowed">
+        —
+      </div>
+    )
+  }
+
+  if (column.dataType === 'boolean') {
+    const checked = value.toLowerCase() === 'true'
+    return (
+      <div className="flex items-center justify-center min-h-[28px]">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={saving}
+          onChange={(e) => save(e.target.checked ? 'true' : 'false')}
+          className={`h-4 w-4 rounded border-gray-300 text-brand-dark focus:ring-gray-400 ${
+            saving ? 'animate-pulse' : 'cursor-pointer'
+          }`}
+        />
+      </div>
+    )
+  }
+
+  if (column.dataType === 'list' && column.options && column.options.length > 0) {
+    // Include any legacy value not in the current options so editing doesn't
+    // silently blank out data that was valid under a prior options list.
+    const optionList = column.options.includes(value) || value === ''
+      ? column.options
+      : [value, ...column.options]
+    return (
+      <select
+        value={value}
+        disabled={saving}
+        onChange={(e) => save(e.target.value)}
+        className={`w-full rounded border-0 bg-transparent px-2 py-1 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-400 ${
+          saving ? 'opacity-50' : ''
+        }`}
+      >
+        <option value="">—</option>
+        {optionList.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  // Default: free-text editor (re-uses EditableCell)
+  return (
+    <EditableCell
+      value={value}
+      onSave={save}
+      placeholder={column.label}
+      type="text"
+      className="text-sm"
+    />
+  )
+}
+
+export default function DraggableTestCaseRow({
+  testCase,
+  uatSheetId,
+  isChild,
   isParent,
   dropState,
   showGroupCell = true,
   groupCellContent,
-  groupRowSpan
+  groupRowSpan,
+  customColumns = [],
 }: Props) {
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -483,6 +582,38 @@ export default function DraggableTestCaseRow({
           />
         </td>
 
+        {/* Custom columns (from column_config, populated by CSV/XLSX import) */}
+        {customColumns.map((col) => {
+          // Case-level custom columns live on the test case's extra_fields.
+          // Round-level live on the LATEST round's extra_fields — matches how
+          // Tester/Call Recording/Result/Comments work for core round fields.
+          const extras =
+            col.level === 'case'
+              ? ((testCase.extra_fields ?? {}) as Record<string, string>)
+              : ((latestRound?.extra_fields ?? {}) as Record<string, string>)
+          const value = extras[col.key] ?? ''
+          const disabled = col.level === 'round' && !hasActiveRound
+          return (
+            <td
+              key={col.key}
+              className="px-1 py-1 border-r border-gray-100 min-w-[120px]"
+            >
+              <CustomFieldCell
+                value={value}
+                column={col}
+                disabled={disabled}
+                onSave={async (next) => {
+                  if (col.level === 'case') {
+                    await updateTestCaseExtraField(testCase.id, uatSheetId, col.key, next)
+                  } else if (latestRound?.id) {
+                    await updateTestRoundExtraField(latestRound.id, uatSheetId, col.key, next)
+                  }
+                }}
+              />
+            </td>
+          )
+        })}
+
         {/* Ticket Column */}
         <td className="px-1 py-1 border-r border-gray-100 w-[60px]">
           <div className="flex items-center justify-center">
@@ -535,7 +666,7 @@ export default function DraggableTestCaseRow({
       {/* History Expansion Row */}
       {isHistoryExpanded && hasHistory && (
         <tr className="bg-purple-50/50 border-b border-gray-200">
-          <td colSpan={13} className="px-4 py-3">
+          <td colSpan={13 + customColumns.length} className="px-4 py-3">
             <div className="text-xs font-medium text-purple-700 mb-2">Testing History</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

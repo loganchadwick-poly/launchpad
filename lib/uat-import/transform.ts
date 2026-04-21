@@ -6,14 +6,23 @@
 //   - splitting Round 1 vs Round 2 columns into separate round records
 //   - custom columns flowing into extra_fields
 
-import type { UATResult, UATColumn } from '@/lib/types/database.types'
-import type { ColumnMapping, PreparedCase, PreparedRound } from './types'
+import type { UATResult, UATColumn, UATColumnDataType } from '@/lib/types/database.types'
+import type { ColumnMapping, ColumnValidation, PreparedCase, PreparedRound } from './types'
+
+// Metadata we track for each custom column seen during an import. `validation`
+// captures XLSX dropdown / checkbox rules so column_config can render the
+// right editor in the table.
+export interface CustomColumnMeta {
+  label: string
+  level: 'case' | 'round'
+  validation?: ColumnValidation
+}
 
 export interface TransformOutput {
   cases: PreparedCase[]
   skippedEmpty: number
   rowWarnings: string[] // Warnings about rows we kept but couldn't fully parse
-  customColumnsSeen: Map<string, { label: string; level: 'case' | 'round' }>
+  customColumnsSeen: Map<string, CustomColumnMeta>
 }
 
 export function transformRows(
@@ -24,7 +33,7 @@ export function transformRows(
   const active = mappings.filter((m) => !m.skip)
   const cases: PreparedCase[] = []
   const rowWarnings: string[] = []
-  const customColumnsSeen = new Map<string, { label: string; level: 'case' | 'round' }>()
+  const customColumnsSeen = new Map<string, CustomColumnMeta>()
   let skippedEmpty = 0
   let nextRowNumber = startingRowNumber
 
@@ -53,14 +62,22 @@ export function transformRows(
       if (raw === '') continue
 
       if (m.kind === 'custom') {
-        customColumnsSeen.set(m.targetKey, { label: m.label, level: m.level })
+        customColumnsSeen.set(m.targetKey, {
+          label: m.label,
+          level: m.level,
+          validation: m.validation,
+        })
+        // Normalise booleans to "true"/"false" strings so the checkbox UI
+        // round-trips cleanly. Inputs like "TRUE"/"Yes"/"1" all collapse.
+        const stored =
+          m.validation?.dataType === 'boolean' ? normaliseBoolString(raw) : raw
         if (m.level === 'case') {
-          caseData.extra_fields[m.targetKey] = raw
+          caseData.extra_fields[m.targetKey] = stored
         } else {
           // Custom round-level columns default to round 1 unless explicitly R2
           const roundNum = m.round ?? 1
           const draft = getOrCreateRound(roundDrafts, roundNum)
-          draft.extra_fields[m.targetKey] = raw
+          draft.extra_fields[m.targetKey] = stored
         }
         continue
       }
@@ -86,7 +103,11 @@ export function transformRows(
           default:
             // Unknown core key → treat as custom case-level to preserve the data
             caseData.extra_fields[m.targetKey] = raw
-            customColumnsSeen.set(m.targetKey, { label: m.label, level: 'case' })
+            customColumnsSeen.set(m.targetKey, {
+              label: m.label,
+              level: 'case',
+              validation: m.validation,
+            })
         }
       } else {
         const roundNum = m.round ?? 1
@@ -112,7 +133,11 @@ export function transformRows(
             break
           default:
             draft.extra_fields[m.targetKey] = raw
-            customColumnsSeen.set(m.targetKey, { label: m.label, level: 'round' })
+            customColumnsSeen.set(m.targetKey, {
+              label: m.label,
+              level: 'round',
+              validation: m.validation,
+            })
         }
       }
     }
@@ -163,6 +188,15 @@ function parseBoolean(input: string): boolean {
   return ['yes', 'y', 'true', '1', 'ready', 'x', '✓'].includes(v)
 }
 
+// Normalise a cell value that lives in a boolean-typed (TRUE/FALSE) custom
+// column to the literal string "true" / "false" so the checkbox UI in the
+// table can toggle it cleanly without ambiguity. Empty stays empty.
+function normaliseBoolString(input: string): string {
+  const v = input.toLowerCase().trim()
+  if (v === '') return ''
+  return parseBoolean(input) ? 'true' : 'false'
+}
+
 // Map free-text result values to the enum. Unknown strings → undefined and
 // we warn upstream. Keep this list generous — UAT sheets vary a lot.
 function normaliseResult(raw: string): UATResult | undefined {
@@ -203,7 +237,7 @@ function normaliseResult(raw: string): UATResult | undefined {
 // action file which has DB access.
 export function mergeColumnConfig(
   existing: UATColumn[],
-  customsFromImport: Map<string, { label: string; level: 'case' | 'round' }>,
+  customsFromImport: Map<string, CustomColumnMeta>,
 ): UATColumn[] {
   const core = existing.filter((c) => c.kind === 'core')
   const customByKey = new Map<string, UATColumn>()
@@ -213,13 +247,40 @@ export function mergeColumnConfig(
 
   let nextOrder = Math.max(...core.map((c) => c.order), -1) + 1
   for (const [key, meta] of customsFromImport) {
-    if (customByKey.has(key)) continue
+    const dataType: UATColumnDataType = meta.validation?.dataType ?? 'text'
+    const options = meta.validation?.options
+
+    const existingCustom = customByKey.get(key)
+    if (existingCustom) {
+      // Column already on the sheet — upgrade its dataType/options if the
+      // import gave us richer info. Don't downgrade a list→text or lose
+      // options we previously had.
+      const merged: UATColumn = {
+        ...existingCustom,
+        dataType: existingCustom.dataType ?? dataType,
+        options: existingCustom.options ?? options,
+      }
+      // If the new import's dataType is more specific (e.g. boolean) and the
+      // existing was 'text' (the default), prefer the new one.
+      if (
+        (existingCustom.dataType === undefined || existingCustom.dataType === 'text') &&
+        dataType !== 'text'
+      ) {
+        merged.dataType = dataType
+        merged.options = options
+      }
+      customByKey.set(key, merged)
+      continue
+    }
+
     customByKey.set(key, {
       key,
       label: meta.label,
       kind: 'custom',
       level: meta.level,
       order: nextOrder++,
+      dataType,
+      ...(options ? { options } : {}),
     })
   }
 

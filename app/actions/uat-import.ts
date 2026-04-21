@@ -39,7 +39,7 @@ export async function previewImport(formData: FormData): Promise<
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const parsed = parseBuffer(buffer, kind)
+    const parsed = await parseBuffer(buffer, kind)
     if (parsed.headers.length === 0) {
       return { success: false, error: 'Could not find a header row in the file.' }
     }
@@ -48,7 +48,11 @@ export async function previewImport(formData: FormData): Promise<
     }
 
     const sampleRows = parsed.rows.slice(0, 5)
-    const mappings = await mapHeadersWithAI(parsed.headers, sampleRows)
+    const mappings = await mapHeadersWithAI(
+      parsed.headers,
+      sampleRows,
+      parsed.validations,
+    )
 
     const warnings: string[] = []
     const lowConfidence = mappings.filter((m) => m.confidence === 'low' && !m.skip)
@@ -127,7 +131,7 @@ export async function confirmImport(input: {
 
     // Re-parse from payload.
     const buffer = Buffer.from(input.payloadB64, 'base64')
-    const parsed = parseBuffer(buffer, input.payloadKind)
+    const parsed = await parseBuffer(buffer, input.payloadKind)
 
     const {
       cases,

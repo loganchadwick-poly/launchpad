@@ -41,12 +41,22 @@ export type UATCoreColumnKey =
   | 'polyai_resolution_comments'
   | 'ready_to_retest'
 
+// Data type of a column's cells. Determines the editor rendered in the table.
+//   - 'text'    (default): free-text editor
+//   - 'list'    : dropdown with a fixed option set (picked up from XLSX data validation)
+//   - 'boolean' : checkbox (Google Sheets checkboxes export as a TRUE/FALSE list validation)
+export type UATColumnDataType = 'text' | 'list' | 'boolean'
+
 export interface UATColumn {
   key: string // UATCoreColumnKey when kind='core', else slug
   label: string
   kind: UATColumnKind
   level: UATColumnLevel
   order: number
+  // Optional (default 'text' when absent) — only ever set on custom columns
+  // imported from XLSX with data validation rules attached.
+  dataType?: UATColumnDataType
+  options?: string[] // only populated when dataType === 'list'
 }
 
 // Default baseline config used for new sheets (matches migration 012 default).

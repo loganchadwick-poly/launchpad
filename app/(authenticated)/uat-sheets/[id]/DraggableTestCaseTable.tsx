@@ -21,7 +21,7 @@ import {
 import { createUATGroup, ungroupUATRow, changeUATGroupParent } from '@/app/actions/grouping'
 import DraggableTestCaseRow from './DraggableTestCaseRow'
 import GroupedTestCaseRows from './GroupedTestCaseRows'
-import type { UATTestCase, UATTestRound } from '@/lib/types/database.types'
+import type { UATColumn, UATTestCase, UATTestRound } from '@/lib/types/database.types'
 
 export interface TestCaseWithRounds extends UATTestCase {
   rounds: UATTestRound[]
@@ -30,6 +30,10 @@ export interface TestCaseWithRounds extends UATTestCase {
 interface Props {
   testCases: TestCaseWithRounds[]
   uatSheetId: string
+  // Full column config from the sheet. Core columns are rendered by
+  // hardcoded <th>/<td> pairs below; we filter this list to kind='custom'
+  // and render those after the Resolution Notes column.
+  columnConfig: UATColumn[]
 }
 
 // Group structure for rendering
@@ -38,7 +42,16 @@ interface TestCaseGroup {
   children: TestCaseWithRounds[]
 }
 
-export default function DraggableTestCaseTable({ testCases, uatSheetId }: Props) {
+export default function DraggableTestCaseTable({ testCases, uatSheetId, columnConfig }: Props) {
+  // Custom columns are everything that isn't a core field. Rendered after the
+  // Resolution Notes <th>/<td>, before Ticket. Ordered by their stored `order`.
+  const customColumns = useMemo(
+    () =>
+      [...(columnConfig ?? [])]
+        .filter((c) => c.kind === 'custom')
+        .sort((a, b) => a.order - b.order),
+    [columnConfig],
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   
@@ -214,6 +227,15 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId }: Props)
               <th className="px-2 py-2 text-left text-xs font-semibold uppercase text-gray-600 min-w-[150px] border-r border-gray-200">Comments</th>
               <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-[60px] border-r border-gray-200" title="New Retest Round">RTR</th>
               <th className="px-2 py-2 text-left text-xs font-semibold uppercase text-gray-600 min-w-[150px] border-r border-gray-200">Resolution Notes</th>
+              {customColumns.map((col) => (
+                <th
+                  key={col.key}
+                  className="px-2 py-2 text-left text-xs font-semibold uppercase text-gray-600 min-w-[120px] border-r border-gray-200"
+                  title={`${col.kind} · ${col.level}-level · ${col.dataType ?? 'text'}`}
+                >
+                  {col.label}
+                </th>
+              ))}
               <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-[60px]">Ticket</th>
               <th className="px-2 py-2 text-center text-xs font-semibold uppercase text-gray-600 w-[50px]"></th>
             </tr>
@@ -237,6 +259,7 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId }: Props)
                       children={group.children}
                       uatSheetId={uatSheetId}
                       getDropState={getDropState}
+                      customColumns={customColumns}
                     />
                   )
                 } else {
@@ -249,6 +272,7 @@ export default function DraggableTestCaseTable({ testCases, uatSheetId }: Props)
                       isChild={false}
                       isParent={false}
                       dropState={getDropState(testCase.id)}
+                      customColumns={customColumns}
                     />
                   )
                 }

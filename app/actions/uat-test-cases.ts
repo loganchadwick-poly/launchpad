@@ -248,6 +248,69 @@ export async function createNewRound(testCaseId: string, uatSheetId: string) {
   return { success: true, roundNumber: nextRound }
 }
 
+// Update a single key on the extra_fields JSONB of a test case (case-level
+// custom column). Passing value='' clears the key from the blob.
+export async function updateTestCaseExtraField(
+  id: string,
+  uatSheetId: string,
+  key: string,
+  value: string,
+) {
+  const supabase = await createClient()
+
+  // Fetch → mutate → write. JSONB column; there isn't a "set one key" op,
+  // and the row is small so round-trip is fine.
+  const { data: row, error: readErr } = await supabase
+    .from('uat_test_cases')
+    .select('extra_fields')
+    .eq('id', id)
+    .single()
+  if (readErr) return { error: readErr.message }
+
+  const next: Record<string, string> = { ...(row.extra_fields ?? {}) }
+  if (value === '') delete next[key]
+  else next[key] = value
+
+  const { error } = await supabase
+    .from('uat_test_cases')
+    .update({ extra_fields: next })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  revalidatePath(`/uat-sheets/${uatSheetId}`)
+  return { success: true }
+}
+
+// Same, but for a specific test round (round-level custom columns).
+export async function updateTestRoundExtraField(
+  roundId: string,
+  uatSheetId: string,
+  key: string,
+  value: string,
+) {
+  const supabase = await createClient()
+
+  const { data: row, error: readErr } = await supabase
+    .from('uat_test_rounds')
+    .select('extra_fields')
+    .eq('id', roundId)
+    .single()
+  if (readErr) return { error: readErr.message }
+
+  const next: Record<string, string> = { ...(row.extra_fields ?? {}) }
+  if (value === '') delete next[key]
+  else next[key] = value
+
+  const { error } = await supabase
+    .from('uat_test_rounds')
+    .update({ extra_fields: next })
+    .eq('id', roundId)
+  if (error) return { error: error.message }
+
+  revalidatePath(`/uat-sheets/${uatSheetId}`)
+  return { success: true }
+}
+
 export async function deleteTestCase(id: string, uatSheetId: string) {
   const supabase = await createClient()
 

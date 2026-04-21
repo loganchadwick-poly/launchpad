@@ -1,6 +1,13 @@
 // Shared types for the UAT CSV/XLSX import pipeline.
 
-import type { UATColumn, UATResult } from '@/lib/types/database.types'
+import type { UATColumn, UATColumnDataType, UATResult } from '@/lib/types/database.types'
+
+// Data-validation info lifted from an XLSX source column. CSV imports never
+// populate this (CSV is plain text and can't carry validation rules).
+export interface ColumnValidation {
+  dataType: UATColumnDataType
+  options?: string[] // only when dataType === 'list'
+}
 
 // A single mapped column from the source file to the target schema.
 export interface ColumnMapping {
@@ -13,6 +20,10 @@ export interface ColumnMapping {
   round: number | null // 1 for initial, 2 for retest columns, null for case-level
   confidence: 'high' | 'low' // AI confidence; 'low' surfaces a warning in preview
   skip: boolean // True if user marked this column to be ignored
+  // Data validation lifted from the source column (XLSX only). Core columns
+  // use fixed enums and ignore this; custom columns use it to render
+  // dropdowns/checkboxes in the table.
+  validation?: ColumnValidation
 }
 
 // Output of the parse+map step. Sent back to the client for preview.

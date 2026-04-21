@@ -209,7 +209,11 @@ export default async function UATSheetPage({ params }: { params: Promise<{ id: s
             <span className="font-medium">Tip:</span> Drag rows onto each other to group related issues. Click any cell to edit. Use the round badge (R1, R2...) to view testing history.
           </div>
           <div className="overflow-x-auto">
-            <DraggableTestCaseTable testCases={testCasesWithSortedRounds} uatSheetId={id} />
+            <DraggableTestCaseTable
+              testCases={testCasesWithSortedRounds}
+              uatSheetId={id}
+              columnConfig={uatSheet.column_config ?? []}
+            />
           </div>
           {/* Add Row Button - Spreadsheet style */}
           <AddRowButton uatSheetId={id} />

@@ -8,7 +8,7 @@
 // - Falls back to heuristic matching for any header the AI couldn't map.
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { ColumnMapping } from './types'
+import type { ColumnMapping, ColumnValidation } from './types'
 
 const MODEL = 'claude-sonnet-4-5-20250929'
 const MAX_SAMPLE_ROWS = 5
@@ -47,23 +47,34 @@ interface AIMappingResponse {
 export async function mapHeadersWithAI(
   headers: string[],
   sampleRows: string[][],
+  validations: Map<number, ColumnValidation> = new Map(),
 ): Promise<ColumnMapping[]> {
   if (headers.length === 0) return []
 
   // Try AI first; fall back to pure heuristics if the API key is missing or
   // the call fails. The feature must not be blocked on AI availability.
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return headers.map((h, i) => heuristicMatch(h, i))
-  }
+  const mappings = !apiKey
+    ? headers.map((h, i) => heuristicMatch(h, i))
+    : await (async () => {
+        try {
+          const aiResponse = await callClaude(apiKey, headers, sampleRows)
+          return buildMappings(headers, aiResponse)
+        } catch (err) {
+          console.error('[uat-import] Anthropic mapper failed, falling back to heuristic:', err)
+          return headers.map((h, i) => heuristicMatch(h, i))
+        }
+      })()
 
-  try {
-    const aiResponse = await callClaude(apiKey, headers, sampleRows)
-    return buildMappings(headers, aiResponse)
-  } catch (err) {
-    console.error('[uat-import] Anthropic mapper failed, falling back to heuristic:', err)
-    return headers.map((h, i) => heuristicMatch(h, i))
+  // Attach any XLSX data-validation rules we captured to the matching mapping.
+  // Useful in two places: (1) we surface dropdown/checkbox UI in the table for
+  // custom columns, and (2) we upgrade auto-slugged case-level custom columns
+  // whose validation looks boolean to actually behave as checkboxes.
+  for (const m of mappings) {
+    const v = validations.get(m.sourceIndex)
+    if (v) m.validation = v
   }
+  return mappings
 }
 
 async function callClaude(

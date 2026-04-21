@@ -202,6 +202,16 @@ export default function ImportTestCasesButton({ uatSheetId }: { uatSheetId: stri
                                 Low confidence
                               </span>
                             )}
+                            {m.validation?.dataType === 'list' && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700" title={m.validation.options?.join(', ')}>
+                                Dropdown ({m.validation.options?.length ?? 0})
+                              </span>
+                            )}
+                            {m.validation?.dataType === 'boolean' && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                                Checkbox
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button

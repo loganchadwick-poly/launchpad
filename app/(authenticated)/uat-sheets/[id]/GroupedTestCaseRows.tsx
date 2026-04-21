@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { updateUATGroupName } from '@/app/actions/grouping'
 import DraggableTestCaseRow from './DraggableTestCaseRow'
-import type { UATTestCase, UATTestRound } from '@/lib/types/database.types'
+import type { UATColumn, UATTestCase, UATTestRound } from '@/lib/types/database.types'
 
 interface TestCaseWithRounds extends UATTestCase {
   rounds: UATTestRound[]
@@ -16,6 +16,7 @@ interface Props {
   children: TestCaseWithRounds[]
   uatSheetId: string
   getDropState: (id: string) => 'dragging' | 'over' | null
+  customColumns: UATColumn[]
 }
 
 // Editable group name component
@@ -91,11 +92,12 @@ function EditableGroupName({
   )
 }
 
-export default function GroupedTestCaseRows({ 
-  parent, 
-  children, 
+export default function GroupedTestCaseRows({
+  parent,
+  children,
   uatSheetId,
-  getDropState 
+  getDropState,
+  customColumns,
 }: Props) {
   const totalRows = 1 + children.length // Parent + children
   
@@ -193,8 +195,9 @@ export default function GroupedTestCaseRows({
         showGroupCell={true}
         groupCellContent={groupCellContent}
         groupRowSpan={totalRows}
+        customColumns={customColumns}
       />
-      
+
       {/* Child Rows - no group cell (handled by rowSpan) */}
       {children.map((child) => (
         <DraggableTestCaseRow
@@ -205,6 +208,7 @@ export default function GroupedTestCaseRows({
           isParent={false}
           dropState={getDropState(child.id)}
           showGroupCell={false}
+          customColumns={customColumns}
         />
       ))}
     </Fragment>
