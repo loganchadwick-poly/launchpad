@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Demo deploy config is intentionally committed so Vercel builds it with no
+# dashboard env setup. Public-safe: anon key is meant to be public; the
+# BYPASS_AUTH flags are demo-only and should be removed to re-enable login.
+!.env.production
 
 # vercel
 .vercel
