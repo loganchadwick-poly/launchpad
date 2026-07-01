@@ -1,6 +1,6 @@
 -- Fix: Allow authenticated users to update any team member
 -- The previous policy only allowed users to update their own profile
--- This change allows PSMs and other admins to manage team members
+-- This change allows Deployment Strategists (DS) and other admins to manage team members
 
 -- Drop the restrictive policy
 DROP POLICY IF EXISTS "Users can update their own profile" ON public.users;

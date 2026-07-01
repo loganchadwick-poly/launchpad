@@ -150,7 +150,7 @@ export default function TeamMemberRow({ user }: { user: User }) {
                     required
                     className="input-field"
                   >
-                    <option value="DS">DS</option>
+                    <option value="DS">DS (Deployment Strategist)</option>
                     <option value="AD">AD</option>
                     <option value="FDE">FDE</option>
                     <option value="Client">Client</option>

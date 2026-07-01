@@ -1,9 +1,9 @@
 -- UAT & Hypercare Management Platform
--- Migration 011: Replace deployment_id + jira_space with jira_component, Rename PSM to DS
+-- Migration 011: Replace deployment_id + jira_space with jira_component, assert DS role
 --
 -- Changes:
 -- 1. Add jira_component column to deployments, migrate data, drop old columns
--- 2. Rename role 'PSM' to 'DS' (Deployment Strategist) in users table
+-- 2. Assert the 'DS' (Deployment Strategist) role in the users table
 -- 3. Recreate all PL/pgSQL functions that referenced old columns
 
 -- =====================================================
@@ -24,16 +24,13 @@ ALTER TABLE public.deployments DROP COLUMN deployment_id;
 ALTER TABLE public.deployments DROP COLUMN jira_space;
 
 -- =====================================================
--- 1B. RENAME PSM ROLE TO DS
+-- 1B. ASSERT DS (DEPLOYMENT STRATEGIST) ROLE CONSTRAINT
 -- =====================================================
 
--- Drop existing CHECK constraint FIRST (old constraint rejects 'DS')
+-- Drop existing CHECK constraint FIRST so we can (re)assert the DS role set
 ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
 
--- Migrate existing PSM users to DS
-UPDATE public.users SET role = 'DS' WHERE role = 'PSM';
-
--- Add new constraint with DS instead of PSM
+-- Assert the Deployment Strategist (DS) role constraint
 ALTER TABLE public.users ADD CONSTRAINT users_role_check
   CHECK (role IN ('DS', 'AD', 'FDE', 'Client'));
 

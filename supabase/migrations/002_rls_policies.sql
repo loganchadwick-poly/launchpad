@@ -22,7 +22,7 @@ CREATE POLICY "Users can view all users"
   ON public.users FOR SELECT
   USING (true);
 
--- Allow authenticated users to insert users (PSM can add team members)
+-- Allow authenticated users to insert users (Deployment Strategist (DS) can add team members)
 CREATE POLICY "Authenticated users can insert users"
   ON public.users FOR INSERT
   WITH CHECK (true);

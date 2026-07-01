@@ -11,7 +11,7 @@ CREATE TABLE public.users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('PSM', 'AD', 'FDE', 'Client')),
+  role TEXT NOT NULL CHECK (role IN ('DS', 'AD', 'FDE', 'Client')),
   jira_username TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
