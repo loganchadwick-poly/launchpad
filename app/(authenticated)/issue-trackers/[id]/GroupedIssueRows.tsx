@@ -96,14 +96,28 @@ const statusColors: Record<string, string> = {
   'Accepted for Fix': 'bg-blue-100 text-blue-700',
 }
 
-export default function GroupedIssueRows({ 
-  parent, 
-  children, 
+export default function GroupedIssueRows({
+  parent,
+  children,
   issueTrackerId,
-  getDropState 
+  getDropState
 }: Props) {
-  const totalRows = 1 + children.length
-  
+  const issueCount = 1 + children.length
+
+  // Expansion is owned here so the merged group cell's rowSpan can account for
+  // any expanded detail rows. Without this, expanding a grouped issue injects a
+  // <tr> the rowSpan doesn't cover and the whole table misaligns.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const toggleExpanded = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const expandedCount = [parent, ...children].filter((i) => expandedIds.has(i.id)).length
+  const groupRowSpan = issueCount + expandedCount
+
   const {
     attributes,
     listeners,
@@ -150,7 +164,7 @@ export default function GroupedIssueRows({
       
       {/* Issue Count */}
       <p className="text-xs text-blue-600 px-2">
-        ({totalRows} issues)
+        ({issueCount} issues)
       </p>
       
       {/* Parent Ticket Info */}
@@ -185,9 +199,12 @@ export default function GroupedIssueRows({
         dropState={getDropState(parent.id)}
         showGroupCell={true}
         groupCellContent={groupCellContent}
-        groupRowSpan={totalRows}
+        groupRowSpan={groupRowSpan}
+        inGroup={true}
+        isExpanded={expandedIds.has(parent.id)}
+        onToggleExpand={() => toggleExpanded(parent.id)}
       />
-      
+
       {/* Child Rows */}
       {children.map((child) => (
         <DraggableIssueRow
@@ -198,6 +215,9 @@ export default function GroupedIssueRows({
           isParent={false}
           dropState={getDropState(child.id)}
           showGroupCell={false}
+          inGroup={true}
+          isExpanded={expandedIds.has(child.id)}
+          onToggleExpand={() => toggleExpanded(child.id)}
         />
       ))}
     </Fragment>

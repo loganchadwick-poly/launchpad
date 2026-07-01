@@ -31,20 +31,35 @@ interface Props {
   showGroupCell?: boolean
   groupCellContent?: React.ReactNode
   groupRowSpan?: number
+  // When a row lives inside a group, expansion is controlled by the group so
+  // the merged group cell's rowSpan can grow to cover the detail row. inGroup
+  // also tells the detail row that column 1 is already covered by that cell.
+  inGroup?: boolean
+  isExpanded?: boolean
+  onToggleExpand?: () => void
 }
 
-export default function DraggableIssueRow({ 
-  issue, 
-  issueTrackerId, 
+export default function DraggableIssueRow({
+  issue,
+  issueTrackerId,
   isChild,
   isParent,
   dropState,
   showGroupCell = true,
   groupCellContent,
-  groupRowSpan
+  groupRowSpan,
+  inGroup = false,
+  isExpanded: isExpandedProp,
+  onToggleExpand,
 }: Props) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [internalExpanded, setInternalExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  // Grouped rows are controlled by the parent group; standalone rows manage
+  // their own expansion locally.
+  const isControlled = typeof onToggleExpand === 'function'
+  const isExpanded = isControlled ? !!isExpandedProp : internalExpanded
+  const toggleExpand = isControlled ? onToggleExpand! : () => setInternalExpanded((v) => !v)
 
   const {
     attributes,
@@ -142,7 +157,7 @@ export default function DraggableIssueRow({
               </div>
             )}
             <button
-              onClick={() => setIsExpanded(!isExpanded)}
+              onClick={toggleExpand}
               className="text-left text-sm font-medium text-brand-dark hover:underline"
             >
               {issue.issue_name}
@@ -225,12 +240,12 @@ export default function DraggableIssueRow({
       {/* Expanded Details Row */}
       {isExpanded && (
         <tr className="bg-gray-50">
-          <td colSpan={9} className="px-4 py-6">
+          <td colSpan={inGroup ? 8 : 9} className="px-4 py-6">
             <div className="mx-auto max-w-4xl space-y-6">
               <div className="flex items-center justify-between border-b pb-3">
                 <h3 className="text-lg font-semibold text-brand-dark">Issue Details</h3>
                 <button
-                  onClick={() => setIsExpanded(false)}
+                  onClick={toggleExpand}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -42,6 +42,12 @@ interface Props {
   // Called after a successful delete so the parent table can optimistically
   // remove the row from its local state (feels instant; no revalidate flicker).
   onDeleted?: (id: string) => void
+  // When a row lives inside a group, the round-history expansion is controlled
+  // by the group so the merged group cell's rowSpan can cover the extra <tr>.
+  // inGroup also tells the history row that column 1 is already covered.
+  inGroup?: boolean
+  isHistoryExpanded?: boolean
+  onToggleHistory?: () => void
 }
 
 // Editable cell component for text inputs
@@ -282,10 +288,21 @@ export default function DraggableTestCaseRow({
   groupRowSpan,
   customColumns = [],
   onDeleted,
+  inGroup = false,
+  isHistoryExpanded: isHistoryExpandedProp,
+  onToggleHistory,
 }: Props) {
-  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false)
+  const [internalHistoryExpanded, setInternalHistoryExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [creatingRound, setCreatingRound] = useState(false)
+
+  // Grouped rows are controlled by the parent group; standalone rows manage
+  // their own round-history expansion locally.
+  const isHistoryControlled = typeof onToggleHistory === 'function'
+  const isHistoryExpanded = isHistoryControlled ? !!isHistoryExpandedProp : internalHistoryExpanded
+  const toggleHistory = isHistoryControlled
+    ? onToggleHistory!
+    : () => setInternalHistoryExpanded((v) => !v)
 
   const {
     attributes,
@@ -467,7 +484,7 @@ export default function DraggableTestCaseRow({
         {/* Round Badge */}
         <td className="px-1 py-1 border-r border-gray-100 w-[70px]">
           <button
-            onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+            onClick={toggleHistory}
             className={`w-full flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
               hasHistory 
                 ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' 
@@ -678,7 +695,7 @@ export default function DraggableTestCaseRow({
       {/* History Expansion Row */}
       {isHistoryExpanded && hasHistory && (
         <tr className="bg-purple-50/50 border-b border-gray-200">
-          <td colSpan={13 + customColumns.length} className="px-4 py-3">
+          <td colSpan={(inGroup ? 12 : 13) + customColumns.length} className="px-4 py-3">
             <div className="text-xs font-medium text-purple-700 mb-2">Testing History</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

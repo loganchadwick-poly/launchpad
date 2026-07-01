@@ -102,7 +102,25 @@ export default function GroupedTestCaseRows({
   onRowDeleted,
 }: Props) {
   const totalRows = 1 + children.length // Parent + children
-  
+
+  // Round-history expansion is owned here so the merged group cell's rowSpan
+  // can account for any expanded history rows. Without this, expanding history
+  // on a grouped row injects a <tr> the rowSpan doesn't cover and the table
+  // columns misalign. Only rows that actually have history (>1 round) render an
+  // extra row, so we only count those toward the rowSpan.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const toggleHistory = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const expandedExtraRows = [parent, ...children].filter(
+    (tc) => expandedIds.has(tc.id) && tc.rounds.length > 1
+  ).length
+  const groupRowSpan = totalRows + expandedExtraRows
+
   const {
     attributes,
     listeners,
@@ -196,9 +214,12 @@ export default function GroupedTestCaseRows({
         dropState={getDropState(parent.id)}
         showGroupCell={true}
         groupCellContent={groupCellContent}
-        groupRowSpan={totalRows}
+        groupRowSpan={groupRowSpan}
         customColumns={customColumns}
         onDeleted={onRowDeleted}
+        inGroup={true}
+        isHistoryExpanded={expandedIds.has(parent.id)}
+        onToggleHistory={() => toggleHistory(parent.id)}
       />
 
       {/* Child Rows - no group cell (handled by rowSpan) */}
@@ -213,6 +234,9 @@ export default function GroupedTestCaseRows({
           showGroupCell={false}
           customColumns={customColumns}
           onDeleted={onRowDeleted}
+          inGroup={true}
+          isHistoryExpanded={expandedIds.has(child.id)}
+          onToggleHistory={() => toggleHistory(child.id)}
         />
       ))}
     </Fragment>
